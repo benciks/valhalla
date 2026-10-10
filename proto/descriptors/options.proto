@@ -362,6 +362,10 @@ message Costing {
     oneof has_low_class_factor {
       float low_class_factor = 97;
     }
+
+    oneof has_use_curvature {
+      float use_curvature = 98;   // Preference for curvy roads (0=no preference, 1=maximum curvature)
+    }
   }
 
   oneof has_options {
@@ -383,6 +387,24 @@ message LinearFeatureCost {
   repeated Location shape = 2;                                   // This is where the actual line geometry goes
   double cost_factor = 3;
   bool ignore_access_restrictions = 4;                           // whether to ignore all restrictions along this shape
+  bool bidirectional = 5;                                        // apply the factor to opposing directed edges as well
+  float radius = 6;                                              // also apply the factor to edges within this many meters
+  repeated uint64 edge_ids = 7;                                  // pre-resolved graph edges; skips shape edge walking
+}
+
+// Parameters for graph-native round-trip generation. Candidate anchors are
+// populated internally by Loki after correlation and are not request fields.
+message RoundTripOptions {
+  float target_distance = 1;                                     // requested route length, in request units
+  float target_time = 2;                                         // requested route duration, in minutes
+  float overlap_radius = 3;                                      // corridor around used roads to discourage, in meters
+  float max_overlap = 4;                                         // preferred maximum repeated-edge fraction [0, 1]
+  uint32 seed = 5;                                                // deterministic candidate rotation
+  uint32 candidates = 6;                                         // number of graph anchors to evaluate
+  float reuse_factor = 7;                                        // dynamic cost multiplier for previously used roads
+  bool prefer_under = 8;                                         // strongly penalize routes above the target
+  bool prefer_at_least = 9;                                      // strongly penalize routes below the target
+  repeated Location anchors = 10;                                // internal correlated candidate anchors
 }
 
 message Options {
@@ -552,4 +574,5 @@ message Options {
   TileOptions tile_options = 64;                                   // additional /tile specific options
   repeated Levels exclude_levels = 65;                             // Levels to exclude within the exclude_polygon at the same index
   uint32 expansion_max_distance = 66;                              // Maximum path distance in meters for expansion. 0 = disabled.
+  RoundTripOptions round_trip_options = 68;                         // Enables graph-native round-trip generation
 }

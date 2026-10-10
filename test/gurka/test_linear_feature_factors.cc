@@ -207,6 +207,55 @@ TEST_F(LinearFeatureTest, simple_high_factor) {
             encode_shape({"3", "A", "a", "U", "T", "Y", "Z", "E", "2"}, map.nodes));
 }
 
+TEST_F(LinearFeatureTest, bidirectional_high_factor) {
+  loki::loki_worker_t loki_worker(map.config);
+  thor::thor_worker_t thor_worker(map.config);
+  baldr::GraphReader reader(map.config.get_child("mjolnir"));
+  const auto AB = std::get<0>(gurka::findEdgeByNodes(reader, map.nodes, "A", "B"));
+  const auto BC = std::get<0>(gurka::findEdgeByNodes(reader, map.nodes, "B", "C"));
+
+  std::string json_request = R"(
+  {
+    "locations": [
+      {"lon": %s, "lat": %s},
+      {"lon": %s, "lat": %s}
+    ],
+    "linear_cost_factors": [
+      {"shape": "%s", "edge_ids": ["%s", "%s"], "factor": 200, "bidirectional": true, "radius": 50}
+    ],
+    "costing": "auto"
+  }
+  )";
+
+  auto json_str =
+      (boost::format(json_request) % std::to_string(map.nodes.at("2").lng()) %
+       std::to_string(map.nodes.at("2").lat()) % std::to_string(map.nodes.at("3").lng()) %
+       std::to_string(map.nodes.at("3").lat()) % encode_shape({"A", "B", "C"}, map.nodes) %
+       std::to_string(AB.value) % std::to_string(BC.value))
+          .str();
+
+  Api request;
+  ParseApi(json_str, Options::route, request);
+  loki_worker.route(request);
+  loki_worker.cleanup();
+  ASSERT_EQ(request.options().cost_factor_lines().size(), 1);
+  EXPECT_TRUE(request.options().cost_factor_lines().at(0).bidirectional());
+  EXPECT_EQ(request.options().cost_factor_lines().at(0).radius(), 50);
+  EXPECT_EQ(request.options().cost_factor_lines().at(0).edge_ids_size(), 2);
+
+  thor_worker.route(request);
+  const auto& costing_options =
+      request.options().costings().find(request.options().costing_type())->second.options();
+  check_cost_factor_edge(costing_options.cost_factor_edges(), "B", "A", reader, map.nodes, 200.,
+                         0., 1.);
+  check_cost_factor_edge(costing_options.cost_factor_edges(), "C", "B", reader, map.nodes, 200.,
+                         0., 1.);
+  // Aa is not part of the supplied line but meets it at A, so the radius
+  // expansion should apply the same factor.
+  check_cost_factor_edge(costing_options.cost_factor_edges(), "A", "a", reader, map.nodes, 200.,
+                         0., 1.);
+}
+
 /**
  * Similar as above but use a low factor
  * */

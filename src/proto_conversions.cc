@@ -113,6 +113,7 @@ const std::string& GuidanceViewTypeToString(const valhalla::DirectionsLeg_Guidan
 bool Options_Action_Enum_Parse(const std::string& action, Options::Action* a) {
   static const std::unordered_map<std::string, Options::Action> actions{
       {"route", Options::route},
+      {"round_trip", Options::route},
       {"locate", Options::locate},
       {"sources_to_targets", Options::sources_to_targets},
       {"optimized_route", Options::optimized_route},

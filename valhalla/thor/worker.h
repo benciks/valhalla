@@ -52,6 +52,7 @@ public:
   static void adjust_locations(valhalla::Api& options);
 
   void route(Api& request);
+  void round_trip(Api& request);
   std::string matrix(Api& request);
   void optimized_route(Api& request);
   std::string isochrones(Api& request);

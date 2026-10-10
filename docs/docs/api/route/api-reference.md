@@ -372,8 +372,30 @@ For example a bus request with the result in Spanish using the OSRM (Open Source
 | `roundabout_exits` | A boolean indicating whether exit instructions at roundabouts should be added to the output or not. Default is true. |
 | `admin_crossings` | When present and `true`, the successful route summary will include the two keys `admins` and `admin_crossings`. `admins` is an array of administrative regions the route lies within. `admin_crossings` is an array of objects that contain `from_admin_index` and `to_admin_index`, which are indices into the `admins` array. They also contain `from_shape_index` and `to_shape_index`, which are start and end indices of the edge along which an administrative boundary is crossed. |
 | `turn_lanes` | When present and `true`, each maneuver in the route response can include a `lanes` array describing lane-level guidance. The lanes array details possible `directions`, as well as which lanes are `valid` or `active` for following the maneuver. |
-| `linear_cost_factors` | Customized cost factors that influence path finding, specified as an array of JSON objects. Objects can be either a GeoJSON linestring feature and a `"factor"` property or a plain object with a "shape" key, whose value needs to be an encoded polyline (with 6 digit precision), and a "factor" key whose value needs to be float. Valhalla will perform an edge walk (see [the map matching documentation](../map-matching.md) for more info) to match the geometry onto edges and use those factors in costing. Edges with factors larger than 1 will be increasingly avoided, while edges with factors smaller than 1 increasingly favored. |
+| `linear_cost_factors` | Customized cost factors that influence path finding, specified as an array of JSON objects. Objects can be either a GeoJSON linestring feature and a `"factor"` property or a plain object with a "shape" key, whose value needs to be an encoded polyline (with 6 digit precision), and a "factor" key whose value needs to be float. Valhalla will perform an edge walk (see [the map matching documentation](../map-matching.md) for more info) to match the geometry onto edges and use those factors in costing. A plain object can instead provide `"edge_ids"` as decimal strings to use already-resolved graph edges and skip this edge walk. Edges with factors larger than 1 will be increasingly avoided, while edges with factors smaller than 1 increasingly favored. Set `"bidirectional": true` to apply the same factor to opposing directed edges. Set `"radius"` to a distance in meters (capped at 200) to also factor nearby edges; this is useful for discouraging parallel-road reuse. Both options can be GeoJSON properties or plain-object members. |
 | `reverse_time_tracking` (**BETA**) | Which time tracking strategy to use on the non-time aware expansion in the bidirectional routing algorithm: `disabled` will assume no time, `heuristic` will try a best guess based on the bee line distance between origin and destination. Default `heuristic` |
+
+### Graph-native round trips
+
+`POST /round_trip` accepts one origin (`location` or the first item in `locations`), optional explicit via locations, and exactly one of `target_distance` (in request units) or `target_time` (minutes). Loki creates and correlates target-aware graph anchors after accounting for the fixed vias, rejecting cul-de-sac candidates. Thor routes the fixed via prefix once, then evaluates each candidate one leg at a time while applying a cost penalty to the exact and nearby edges used by earlier legs. Evaluation stops once a candidate is within 10% of the target and below the requested overlap threshold; otherwise the best complete candidate is returned. The response has the standard route shape.
+
+```json
+{
+  "location": {"lat": 49.1951, "lon": 16.6068},
+  "target_distance": 50,
+  "costing": "motorcycle",
+  "costing_options": {"motorcycle": {"use_curvature": 0.8}},
+  "round_trip_options": {
+    "overlap_radius": 50,
+    "max_overlap": 0.02,
+    "reuse_factor": 8,
+    "candidates": 3,
+    "seed": 123
+  }
+}
+```
+
+Overlap is a soft constraint because an origin on a single-access road cannot form a zero-overlap loop. `prefer_under` strongly penalizes candidates above the requested target; `prefer_at_least` does the same for candidates below it. Ordinary `/route` requests never apply round-trip reuse penalties.
 
 [openlr]: https://www.openlr-association.com/fileadmin/user_upload/openlr-whitepaper_v1.5.pdf
 

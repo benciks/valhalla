@@ -593,17 +593,24 @@ void parse_xyz(const rapidjson::Document& doc, valhalla::Options& options) {
 
 void parse_line_geojson(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* line_feat) {
   auto json_obj = json_feat.GetObject();
+  auto properties = json_obj["properties"].GetObject();
   for (const auto& coords_j : json_obj["geometry"].GetObject()["coordinates"].GetArray()) {
     auto* shape_pt = line_feat->add_shape();
     shape_pt->mutable_ll()->set_lng(coords_j.GetArray()[0].GetFloat());
     shape_pt->mutable_ll()->set_lat(coords_j.GetArray()[1].GetFloat());
   }
-  if (json_obj["properties"].GetObject().HasMember("factor")) {
-    line_feat->set_cost_factor(json_obj["properties"].GetObject()["factor"].GetFloat());
-  } else if (json_obj["properties"].GetObject().HasMember("ignore_access_restrictions")) {
+  if (properties.HasMember("factor")) {
+    line_feat->set_cost_factor(properties["factor"].GetFloat());
+  } else if (properties.HasMember("ignore_access_restrictions")) {
     line_feat->set_ignore_access_restrictions(
-        json_obj["properties"].GetObject()["ignore_access_restrictions"].GetBool());
+        properties["ignore_access_restrictions"].GetBool());
     line_feat->set_cost_factor(1);
+  }
+  if (properties.HasMember("bidirectional")) {
+    line_feat->set_bidirectional(properties["bidirectional"].GetBool());
+  }
+  if (properties.HasMember("radius")) {
+    line_feat->set_radius(properties["radius"].GetFloat());
   }
 }
 
@@ -624,6 +631,18 @@ void parse_line(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* 
   } else if (json_obj.HasMember("ignore_access_restrictions")) {
     line_feat->set_cost_factor(1);
     line_feat->set_ignore_access_restrictions(json_obj["ignore_access_restrictions"].GetBool());
+  }
+  if (json_obj.HasMember("bidirectional")) {
+    line_feat->set_bidirectional(json_obj["bidirectional"].GetBool());
+  }
+  if (json_obj.HasMember("radius")) {
+    line_feat->set_radius(json_obj["radius"].GetFloat());
+  }
+  if (json_obj.HasMember("edge_ids")) {
+    for (const auto& edge_id : json_obj["edge_ids"].GetArray()) {
+      line_feat->add_edge_ids(edge_id.IsString() ? std::stoull(edge_id.GetString())
+                                                : edge_id.GetUint64());
+    }
   }
 }
 
@@ -655,6 +674,43 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
   if (Options::Action_IsValid(action))
     options.set_action(action);
   auto& warnings = *api.mutable_info()->mutable_warnings();
+
+  // /round_trip is intentionally represented by the regular route action so
+  // the result follows the existing Loki -> Thor -> Odin pipeline. These
+  // options are the discriminator used by Loki and Thor.
+  const auto target_distance = rapidjson::get_optional<float>(doc, "/target_distance");
+  const auto target_time = rapidjson::get_optional<float>(doc, "/target_time");
+  const auto round_trip_json = rapidjson::get_child_optional(doc, "/round_trip_options");
+  if (target_distance || target_time || round_trip_json || options.has_round_trip_options()) {
+    auto* round_trip = options.mutable_round_trip_options();
+    if (target_distance)
+      round_trip->set_target_distance(*target_distance);
+    if (target_time)
+      round_trip->set_target_time(*target_time);
+    if (round_trip_json) {
+      round_trip->set_overlap_radius(std::clamp(
+          rapidjson::get<float>(*round_trip_json, "/overlap_radius", 50.f), 0.f, 200.f));
+      round_trip->set_max_overlap(std::clamp(
+          rapidjson::get<float>(*round_trip_json, "/max_overlap", .02f), 0.f, 1.f));
+      round_trip->set_seed(rapidjson::get<uint32_t>(*round_trip_json, "/seed", 0));
+      round_trip->set_candidates(std::clamp(
+          rapidjson::get<uint32_t>(*round_trip_json, "/candidates", 3), 1u, 24u));
+      round_trip->set_reuse_factor(std::clamp(
+          rapidjson::get<float>(*round_trip_json, "/reuse_factor", 8.f), 1.f, 100.f));
+      round_trip->set_prefer_under(
+          rapidjson::get<bool>(*round_trip_json, "/prefer_under", false));
+      round_trip->set_prefer_at_least(
+          rapidjson::get<bool>(*round_trip_json, "/prefer_at_least", false));
+    }
+    if (round_trip->overlap_radius() == 0 && !round_trip_json)
+      round_trip->set_overlap_radius(50.f);
+    if (!round_trip_json)
+      round_trip->set_max_overlap(.02f);
+    if (round_trip->candidates() == 0)
+      round_trip->set_candidates(3);
+    if (round_trip->reuse_factor() == 0)
+      round_trip->set_reuse_factor(8.f);
+  }
 
   // matrix can be slimmed down but shouldn't by default for backwards-compatibility reasons
   if (options.action() == Options::sources_to_targets) {
@@ -1059,6 +1115,16 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
 
   // get the locations in there
   parse_locations(doc, api, "locations", 130, ignore_closures, had_date_time);
+  // /round_trip also accepts the ergonomic singular `location` form.
+  if (options.has_round_trip_options() && options.locations().empty()) {
+    auto location_json = rapidjson::get_child_optional(doc, "/location");
+    if (location_json) {
+      auto* location = options.add_locations();
+      location->mutable_correlation()->set_original_index(0);
+      parse_location(location, *location_json, api, ignore_closures, true);
+      location->set_type(Location::kBreak);
+    }
+  }
 
   // get the sources in there
   parse_locations(doc, api, "sources", 131, ignore_closures, had_date_time);
