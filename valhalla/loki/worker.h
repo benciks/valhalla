@@ -113,6 +113,9 @@ protected:
   bool allow_verbose;
   bool allow_hard_exclusions;
   float max_distance_disable_hierarchy_culling;
+  // Round trips skip the regular per-costing distance check, these bound them instead
+  size_t max_round_trip_locations;
+  float max_round_trip_distance_km;
   std::unordered_set<baldr::GraphId> bbox_intersection_;
 
   // for /tile requests

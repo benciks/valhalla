@@ -4,6 +4,7 @@
 #include "thor/worker.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <limits>
 #include <unordered_set>
@@ -19,10 +20,11 @@ constexpr size_t kMinimumCandidateEvaluations = 2;
 // spend many additional full graph searches improving an already exact result.
 constexpr double kEarlyAcceptanceTargetError = .10;
 
-struct UsedLeg {
-  std::vector<uint64_t> edge_ids;
-  std::vector<PointLL> shape;
-};
+// Edges a later leg should avoid: the leg's own edges plus every edge within the
+// overlap corridor, in both directions. Resolved once when the leg is routed,
+// recomputing the corridors of all prior legs before every new leg made the
+// cost grow quadratically with the number of legs.
+using ReusedEdges = std::vector<uint64_t>;
 
 struct CandidateResult {
   TripRoute route;
@@ -49,21 +51,41 @@ std::vector<uint64_t> edge_ids(const TripLeg& leg) {
   return ids;
 }
 
+ReusedEdges reused_edges(GraphReader& reader, const TripLeg& leg, float overlap_radius) {
+  std::unordered_set<uint64_t> edges;
+  auto add_both_directions = [&](const GraphId& edge) {
+    edges.insert(edge.value);
+    const auto opposing = reader.GetOpposingEdgeId(edge);
+    if (opposing.is_valid())
+      edges.insert(opposing.value);
+  };
+
+  for (const auto id : edge_ids(leg))
+    add_both_directions(GraphId(id));
+
+  if (overlap_radius > 0) {
+    auto shape = decode<std::vector<PointLL>>(leg.shape());
+    // Corridor matching compares nearby graph edges against this shape. A
+    // 10 m generalization is safely below the 50 m avoidance radius and
+    // prevents that comparison from becoming quadratic on long routes.
+    if (shape.size() > 2)
+      Polyline2<PointLL>::Generalize(shape, std::max(2., std::min(10., overlap_radius * .2)));
+    for (const auto& edge : thor::edges_near_line(reader, shape, overlap_radius))
+      add_both_directions(edge);
+  }
+  return {edges.begin(), edges.end()};
+}
+
 void add_reuse_factors(Options& options,
-                       const std::vector<UsedLeg>& used,
+                       const std::vector<ReusedEdges>& used,
                        const RoundTripOptions& round_trip) {
   for (const auto& prior : used) {
+    // Directions and corridor are already resolved, so neither `bidirectional`
+    // nor `radius` is set and costing applies the factor to these edges as is
     auto* line = options.add_cost_factor_lines();
     line->set_cost_factor(round_trip.reuse_factor());
-    line->set_bidirectional(true);
-    line->set_radius(round_trip.overlap_radius());
-    for (const auto id : prior.edge_ids)
+    for (const auto id : prior)
       line->add_edge_ids(id);
-    for (const auto& point : prior.shape) {
-      auto* location = line->add_shape();
-      location->mutable_ll()->set_lng(point.lng());
-      location->mutable_ll()->set_lat(point.lat());
-    }
   }
 }
 
@@ -112,16 +134,15 @@ namespace thor {
 // This is the key distinction from an ordinary multi-location route: edges
 // used by leg N are already expensive while leg N+1 is being searched.
 void thor_worker_t::round_trip(Api& request) {
+  const auto search_started = std::chrono::steady_clock::now();
   const auto round_trip = request.options().round_trip_options();
   if (round_trip.anchors().empty())
     throw valhalla_exception_t{171, "no viable round-trip anchors"};
 
-  // Route a single leg and retain both its exact graph edges and geometry for
-  // the reuse/corridor penalty applied to later legs.
-  auto append_leg = [&](const Location& from,
-                        const Location& to,
-                        std::vector<UsedLeg>& used,
-                        TripRoute& output) {
+  // Route a single leg. When more legs follow, also resolve the edges they
+  // should avoid; the closing leg back to the origin skips that work.
+  auto append_leg = [&](const Location& from, const Location& to, std::vector<ReusedEdges>& used,
+                        TripRoute& output, bool more_legs_follow) {
     Api leg_request;
     leg_request.mutable_options()->CopyFrom(request.options());
     leg_request.mutable_options()->clear_round_trip_options();
@@ -140,18 +161,10 @@ void thor_worker_t::round_trip(Api& request) {
       return false;
 
     for (const auto& leg : leg_request.trip().routes(0).legs()) {
-      auto ids = edge_ids(leg);
-      if (ids.empty())
+      if (edge_ids(leg).empty())
         return false;
-      auto shape = decode<std::vector<PointLL>>(leg.shape());
-      if (round_trip.overlap_radius() > 0 && shape.size() > 2) {
-        // Corridor matching compares nearby graph edges against this shape. A
-        // 10 m generalization is safely below the 50 m avoidance radius and
-        // prevents that comparison from becoming quadratic on long routes.
-        Polyline2<PointLL>::Generalize(
-            shape, std::max(2., std::min(10., round_trip.overlap_radius() * .2)));
-      }
-      used.push_back({std::move(ids), std::move(shape)});
+      if (more_legs_follow)
+        used.push_back(reused_edges(*reader, leg, round_trip.overlap_radius()));
       output.add_legs()->CopyFrom(leg);
     }
     return true;
@@ -160,53 +173,35 @@ void thor_worker_t::round_trip(Api& request) {
   // All user-supplied vias precede the generated anchor, so their legs are
   // identical for every candidate. Compute this prefix once instead of once
   // per anchor (the dominant cost for POI-shaped loops).
+  const auto& options = request.options();
+  const auto& origin = options.locations(0);
+  const auto& last_user_location = options.locations(options.locations_size() - 1);
   TripRoute prefix_route;
-  std::vector<UsedLeg> prefix_used;
-  for (int i = 0; i + 1 < request.options().locations_size(); ++i) {
-    if (!append_leg(request.options().locations(i), request.options().locations(i + 1),
-                    prefix_used, prefix_route))
+  std::vector<ReusedEdges> prefix_used;
+  for (int i = 0; i + 1 < options.locations_size(); ++i) {
+    if (!append_leg(options.locations(i), options.locations(i + 1), prefix_used, prefix_route,
+                    true))
       throw valhalla_exception_t{442};
   }
 
+  const auto target = round_trip.target_distance() > 0
+                          ? static_cast<double>(round_trip.target_distance()) *
+                                (options.units() == Options::miles ? 1.609344 : 1.)
+                          : static_cast<double>(round_trip.target_time()) * 60.;
   CandidateResult best;
   bool found = false;
   size_t evaluated = 0;
-  size_t examined = 0;
-  const auto minimum_evaluations =
-      std::min(kMinimumCandidateEvaluations, static_cast<size_t>(round_trip.anchors_size()));
-  for (const auto& anchor : round_trip.anchors()) {
-    ++examined;
-    CandidateResult candidate;
-    candidate.route.CopyFrom(prefix_route);
-    auto used = prefix_used;
-    const auto& last_user_location =
-        request.options().locations(request.options().locations_size() - 1);
-    if (!append_leg(last_user_location, anchor, used, candidate.route))
-      continue;
-    const auto arrival_edge = GraphId(used.back().edge_ids.back());
-    const auto return_leg_index = candidate.route.legs_size();
-    if (!append_leg(anchor, request.options().locations(0), used, candidate.route))
-      continue;
-    const auto departure_edges = edge_ids(candidate.route.legs(return_leg_index));
-    const auto uturn_edge = reader->GetOpposingEdgeId(arrival_edge);
-    candidate.anchor_uturn = !departure_edges.empty() && uturn_edge.is_valid() &&
-                             departure_edges.front() == uturn_edge.value;
-    ++evaluated;
 
-    const auto actual = round_trip.target_distance() > 0
-                            ? route_length(candidate.route)
-                            : route_time_seconds(candidate.route);
-    const auto target = round_trip.target_distance() > 0
-                            ? static_cast<double>(round_trip.target_distance()) *
-                                  (request.options().units() == Options::miles ? 1.609344 : 1.)
-                            : static_cast<double>(round_trip.target_time()) * 60.;
+  auto consider = [&](CandidateResult candidate) {
+    ++evaluated;
+    const auto actual = round_trip.target_distance() > 0 ? route_length(candidate.route)
+                                                         : route_time_seconds(candidate.route);
     candidate.target_error = std::abs(actual - target) / target;
     candidate.overlap = overlap_fraction(*reader, candidate.route);
     const auto over_target = actual > target ? (actual - target) / target : 0.;
     const auto under_target = actual < target ? (target - actual) / target : 0.;
-    candidate.target_mode_satisfied =
-        (!round_trip.prefer_under() || actual <= target) &&
-        (!round_trip.prefer_at_least() || actual >= target);
+    candidate.target_mode_satisfied = (!round_trip.prefer_under() || actual <= target) &&
+                                      (!round_trip.prefer_at_least() || actual >= target);
     candidate.score = candidate.target_error + 4. * candidate.overlap;
     if (candidate.overlap > round_trip.max_overlap())
       candidate.score += 10. * (candidate.overlap - round_trip.max_overlap());
@@ -229,13 +224,53 @@ void thor_worker_t::round_trip(Api& request) {
       best = std::move(candidate);
       found = true;
     }
+  };
 
+  // When the user's vias already shape a loop of the right size, going straight
+  // back to the origin beats any detour through a generated anchor. It costs a
+  // single leg and competes with the anchors on the same score.
+  const auto has_vias = options.locations_size() > 1;
+  if (has_vias) {
+    CandidateResult direct;
+    direct.route.CopyFrom(prefix_route);
+    if (append_leg(last_user_location, origin, prefix_used, direct.route, false))
+      consider(std::move(direct));
+  }
+
+  const auto minimum_evaluations =
+      std::min(kMinimumCandidateEvaluations,
+               static_cast<size_t>(round_trip.anchors_size()) + (has_vias ? 1 : 0));
+  size_t examined = 0;
+  for (const auto& anchor : round_trip.anchors()) {
     // Stop early once a diverse minimum set contains a route within the
     // planner's target tolerance and the requested overlap threshold.
-    if (evaluated >= minimum_evaluations && best.target_mode_satisfied && !best.anchor_uturn &&
-        best.target_error <= kEarlyAcceptanceTargetError &&
+    if (found && evaluated >= minimum_evaluations && best.target_mode_satisfied &&
+        !best.anchor_uturn && best.target_error <= kEarlyAcceptanceTargetError &&
         best.overlap <= round_trip.max_overlap())
       break;
+    // Bound the latency of long loops: once out of time, a usable loop now
+    // beats a slightly better one later
+    const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - search_started;
+    if (found && elapsed.count() > round_trip_time_budget_seconds) {
+      LOG_WARN("round_trip time budget spent after " + std::to_string(examined) + " anchors");
+      break;
+    }
+
+    ++examined;
+    CandidateResult candidate;
+    candidate.route.CopyFrom(prefix_route);
+    auto used = prefix_used;
+    if (!append_leg(last_user_location, anchor, used, candidate.route, true))
+      continue;
+    const auto arrival_edge = GraphId(edge_ids(*candidate.route.legs().rbegin()).back());
+    const auto return_leg_index = candidate.route.legs_size();
+    if (!append_leg(anchor, origin, used, candidate.route, false))
+      continue;
+    const auto departure_edges = edge_ids(candidate.route.legs(return_leg_index));
+    const auto uturn_edge = reader->GetOpposingEdgeId(arrival_edge);
+    candidate.anchor_uturn = !departure_edges.empty() && uturn_edge.is_valid() &&
+                             departure_edges.front() == uturn_edge.value;
+    consider(std::move(candidate));
   }
 
   if (!found)

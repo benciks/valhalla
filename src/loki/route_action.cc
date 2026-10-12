@@ -145,6 +145,20 @@ void loki_worker_t::route(Api& request) {
 
   init_route(request);
   auto& options = *request.mutable_options();
+  if (options.has_round_trip_options()) {
+    const auto& round_trip = options.round_trip_options();
+    if (static_cast<size_t>(options.locations_size()) > max_round_trip_locations)
+      throw valhalla_exception_t{150, " for round_trip: " + std::to_string(max_round_trip_locations)};
+    // A motorcycle minute is estimated as 0.92 km, as for anchor placement
+    auto target_km = round_trip.target_distance() > 0 ? round_trip.target_distance()
+                                                      : round_trip.target_time() * .92f;
+    if (options.units() == Options::miles && round_trip.target_distance() > 0)
+      target_km *= 1.609344f;
+    if (target_km > max_round_trip_distance_km)
+      throw valhalla_exception_t{154, " for round_trip: " +
+                                          std::to_string(static_cast<int>(max_round_trip_distance_km)) +
+                                          " km"};
+  }
   const auto original_location_count = options.locations_size();
   const auto generated_candidate_count = append_round_trip_candidates(options);
   for (size_t i = original_location_count;
@@ -250,10 +264,16 @@ void loki_worker_t::route(Api& request) {
       search_.search(*locations, mode_costing[static_cast<size_t>(mode)]);
     }
 
-    // throw if there's a location we did not find any
-    // candidates for
-    for (const auto& location : *locations) {
-      if (location.correlation().edges().empty() && location.correlation().filtered_edges().empty()) {
+    // throw if there's a location we did not find any candidates for. Generated
+    // round-trip anchors are exempt: one projected outside the tile coverage or
+    // far from any road is dropped below, and the remaining anchors still work.
+    for (int i = 0; i < locations->size(); ++i) {
+      const auto is_generated_anchor =
+          i >= original_location_count &&
+          i < original_location_count + static_cast<int>(generated_candidate_count);
+      const auto& location = locations->at(i);
+      if (!is_generated_anchor && location.correlation().edges().empty() &&
+          location.correlation().filtered_edges().empty()) {
         throw valhalla_exception_t(171);
       }
     }

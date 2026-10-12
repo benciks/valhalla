@@ -250,16 +250,17 @@ bool is_near_line(const std::vector<PointLL>& candidate,
   return false;
 }
 
+} // namespace
+
+namespace valhalla {
+namespace thor {
+
 // Find graph edges in the route's tile bins and their immediate neighbours,
 // then retain only edges whose geometry enters the requested corridor. The
 // supported radius is deliberately smaller than a hierarchy-level bin.
 std::unordered_set<GraphId> edges_near_line(baldr::GraphReader& reader,
-                                            const valhalla::LinearFeatureCost& line,
+                                            const std::vector<PointLL>& line_shape,
                                             float radius) {
-  std::vector<PointLL> line_shape;
-  line_shape.reserve(line.shape_size());
-  for (const auto& location : line.shape())
-    line_shape.emplace_back(location.ll().lng(), location.ll().lat());
   if (line_shape.size() < 2 || radius <= 0)
     return {};
 
@@ -298,6 +299,11 @@ std::unordered_set<GraphId> edges_near_line(baldr::GraphReader& reader,
   }
   return nearby;
 }
+
+} // namespace thor
+} // namespace valhalla
+
+namespace {
 
 /**
  * Given one or more cost factor shapes, resolve them into single edges with an ID, a cost factor and
@@ -470,7 +476,11 @@ void add_cost_factor_edges(const sif::mode_costing_t& costing,
           add_shortcut(reader, shortcut, costing_options, edge);
       };
 
-      for (const auto& edge_id : edges_near_line(reader, line, radius)) {
+      std::vector<PointLL> line_shape;
+      line_shape.reserve(line.shape_size());
+      for (const auto& location : line.shape())
+        line_shape.emplace_back(location.ll().lng(), location.ll().lat());
+      for (const auto& edge_id : edges_near_line(reader, line_shape, radius)) {
         add_full_edge_factor(edge_id);
         if (line.bidirectional())
           add_full_edge_factor(reader.GetOpposingEdgeId(edge_id));

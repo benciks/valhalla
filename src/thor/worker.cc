@@ -71,7 +71,9 @@ thor_worker_t::thor_worker_t(const boost::property_tree::ptree& config,
       allow_hierarchy_limits_modifications(
           config.get<bool>("service_limits.hierarchy_limits.allow_modification", false)),
       min_linear_cost_factor(config.get<double>("service_limits.min_linear_cost_factor", 1.0)),
-      max_linear_cost_edges(config.get<uint64_t>("service_limits.max_linear_cost_edges", 50000)) {
+      max_linear_cost_edges(config.get<uint64_t>("service_limits.max_linear_cost_edges", 50000)),
+      round_trip_time_budget_seconds(
+          config.get<float>("service_limits.round_trip.max_search_seconds", 30.f)) {
 
   // Select the matrix algorithm based on the conf file (defaults to
   // select_optimal if not present)
@@ -84,7 +86,7 @@ thor_worker_t::thor_worker_t(const boost::property_tree::ptree& config,
         kv.first == "isochrone" || kv.first == "centroid" || kv.first == "status" ||
         kv.first == "max_distance_disable_hierarchy_culling" || kv.first == "allow_hard_exclusions" ||
         kv.first == "hierarchy_limits" || kv.first == "min_linear_cost_factor" ||
-        kv.first == "max_linear_cost_edges") {
+        kv.first == "max_linear_cost_edges" || kv.first == "round_trip") {
       continue;
     }
 

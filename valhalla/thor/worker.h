@@ -23,6 +23,7 @@
 #include <boost/property_tree/ptree_fwd.hpp>
 
 #include <tuple>
+#include <unordered_set>
 #include <vector>
 
 namespace valhalla {
@@ -31,6 +32,11 @@ namespace thor {
 #ifdef ENABLE_SERVICES
 void run_service(const boost::property_tree::ptree& config);
 #endif
+
+// Directed graph edges whose geometry comes within `radius` meters of the line
+std::unordered_set<baldr::GraphId> edges_near_line(baldr::GraphReader& reader,
+                                                   const std::vector<midgard::PointLL>& line_shape,
+                                                   float radius);
 
 class thor_worker_t : public service_worker_t {
 public:
@@ -143,6 +149,8 @@ protected:
 
   double min_linear_cost_factor;
   uint64_t max_linear_cost_edges;
+  // Once spent, round trips stop evaluating anchors and return the best loop so far
+  float round_trip_time_budget_seconds;
 
 private:
   std::string service_name() const override {
