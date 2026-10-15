@@ -11,6 +11,7 @@ defaults:
  
 jobs:
   release-python:
+    if: ${{ github.repository_owner == 'valhalla' }}
     runs-on: ubuntu-latest
     permissions:
       id-token: write  # for trusted publishing to PyPI
@@ -30,6 +31,7 @@ jobs:
           # repository-url: https://test.pypi.org/legacy/
  
   release-ts:
+    if: ${{ github.repository_owner == 'valhalla' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -44,4 +46,6 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
       - run: make release-ts-tag
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
  
