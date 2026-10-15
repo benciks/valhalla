@@ -246,14 +246,14 @@ TEST_F(LinearFeatureTest, bidirectional_high_factor) {
   thor_worker.route(request);
   const auto& costing_options =
       request.options().costings().find(request.options().costing_type())->second.options();
-  check_cost_factor_edge(costing_options.cost_factor_edges(), "B", "A", reader, map.nodes, 200.,
-                         0., 1.);
-  check_cost_factor_edge(costing_options.cost_factor_edges(), "C", "B", reader, map.nodes, 200.,
-                         0., 1.);
+  check_cost_factor_edge(costing_options.cost_factor_edges(), "B", "A", reader, map.nodes, 200., 0.,
+                         1.);
+  check_cost_factor_edge(costing_options.cost_factor_edges(), "C", "B", reader, map.nodes, 200., 0.,
+                         1.);
   // Aa is not part of the supplied line but meets it at A, so the radius
   // expansion should apply the same factor.
-  check_cost_factor_edge(costing_options.cost_factor_edges(), "A", "a", reader, map.nodes, 200.,
-                         0., 1.);
+  check_cost_factor_edge(costing_options.cost_factor_edges(), "A", "a", reader, map.nodes, 200., 0.,
+                         1.);
 }
 
 /**

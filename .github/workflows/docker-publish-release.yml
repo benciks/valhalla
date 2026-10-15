@@ -1,10 +1,11 @@
 name: Build and Push Valhalla Docker Images
 
-# Publish release-tagged images for the cluster.
+# Publish fork release-tagged images for the cluster.
 on:
   push:
     tags:
-      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+'
+      - '[0-9]+.[0-9]+.[0-9]+-*'
 
 permissions:
   contents: read

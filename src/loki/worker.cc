@@ -248,8 +248,7 @@ loki_worker_t::loki_worker_t(const boost::property_tree::ptree& config,
   // Each round-trip anchor costs two full graph searches over the whole loop, so
   // long targets and many vias are bounded explicitly
   max_round_trip_locations = config.get<size_t>("service_limits.round_trip.max_locations", 12);
-  max_round_trip_distance_km =
-      config.get<float>("service_limits.round_trip.max_distance_km", 500.f);
+  max_round_trip_distance_km = config.get<float>("service_limits.round_trip.max_distance_km", 500.f);
 
   // Keep a string noting which actions we support, throw if one isnt supported
   Options::Action action;

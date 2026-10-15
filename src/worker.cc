@@ -602,8 +602,7 @@ void parse_line_geojson(const rapidjson::Value& json_feat, valhalla::LinearFeatu
   if (properties.HasMember("factor")) {
     line_feat->set_cost_factor(properties["factor"].GetFloat());
   } else if (properties.HasMember("ignore_access_restrictions")) {
-    line_feat->set_ignore_access_restrictions(
-        properties["ignore_access_restrictions"].GetBool());
+    line_feat->set_ignore_access_restrictions(properties["ignore_access_restrictions"].GetBool());
     line_feat->set_cost_factor(1);
   }
   if (properties.HasMember("bidirectional")) {
@@ -641,7 +640,7 @@ void parse_line(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* 
   if (json_obj.HasMember("edge_ids")) {
     for (const auto& edge_id : json_obj["edge_ids"].GetArray()) {
       line_feat->add_edge_ids(edge_id.IsString() ? std::stoull(edge_id.GetString())
-                                                : edge_id.GetUint64());
+                                                 : edge_id.GetUint64());
     }
   }
 }
@@ -688,13 +687,12 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
     if (target_time)
       round_trip->set_target_time(*target_time);
     if (round_trip_json) {
-      round_trip->set_overlap_radius(std::clamp(
-          rapidjson::get<float>(*round_trip_json, "/overlap_radius", 50.f), 0.f, 200.f));
+      round_trip->set_overlap_radius(
+          std::clamp(rapidjson::get<float>(*round_trip_json, "/overlap_radius", 50.f), 0.f, 200.f));
       round_trip->set_seed(rapidjson::get<uint32_t>(*round_trip_json, "/seed", 0));
-      round_trip->set_reuse_factor(std::clamp(
-          rapidjson::get<float>(*round_trip_json, "/reuse_factor", 8.f), 1.f, 100.f));
-      round_trip->set_prefer_under(
-          rapidjson::get<bool>(*round_trip_json, "/prefer_under", false));
+      round_trip->set_reuse_factor(
+          std::clamp(rapidjson::get<float>(*round_trip_json, "/reuse_factor", 8.f), 1.f, 100.f));
+      round_trip->set_prefer_under(rapidjson::get<bool>(*round_trip_json, "/prefer_under", false));
       round_trip->set_prefer_at_least(
           rapidjson::get<bool>(*round_trip_json, "/prefer_at_least", false));
     }
@@ -702,9 +700,8 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
     // candidate costs two full graph searches, so short loops can afford more
     // of them under a stricter overlap limit and very long loops get fewer.
     // A motorcycle minute is estimated as 0.92 km, as for anchor placement.
-    const auto target_km = round_trip->target_distance() > 0
-                               ? round_trip->target_distance()
-                               : round_trip->target_time() * .92f;
+    const auto target_km = round_trip->target_distance() > 0 ? round_trip->target_distance()
+                                                             : round_trip->target_time() * .92f;
     boost::optional<float> max_overlap;
     boost::optional<unsigned int> candidates;
     if (round_trip_json) {
@@ -713,8 +710,10 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
     }
     round_trip->set_max_overlap(
         std::clamp(max_overlap.value_or(target_km < 100 ? .005f : .02f), 0.f, 1.f));
-    round_trip->set_candidates(std::clamp(
-        candidates.value_or(target_km < 100 ? 5u : target_km >= 500 ? 2u : 3u), 1u, 24u));
+    round_trip->set_candidates(std::clamp(candidates.value_or(target_km < 100    ? 5u
+                                                              : target_km >= 500 ? 2u
+                                                                                 : 3u),
+                                          1u, 24u));
     if (round_trip->overlap_radius() == 0 && !round_trip_json)
       round_trip->set_overlap_radius(50.f);
     if (round_trip->reuse_factor() == 0)

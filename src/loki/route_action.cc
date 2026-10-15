@@ -17,12 +17,11 @@ midgard::PointLL project(const midgard::PointLL& origin, double bearing_degrees,
   const auto bearing = bearing_degrees * M_PI / 180.;
   const auto lat = origin.lat() * M_PI / 180.;
   const auto angular = meters / kEarthRadiusMeters;
-  const auto projected_lat =
-      std::asin(std::sin(lat) * std::cos(angular) +
-                std::cos(lat) * std::sin(angular) * std::cos(bearing));
+  const auto projected_lat = std::asin(std::sin(lat) * std::cos(angular) +
+                                       std::cos(lat) * std::sin(angular) * std::cos(bearing));
   const auto projected_lon = origin.lng() * M_PI / 180. +
-      std::atan2(std::sin(bearing) * std::sin(angular) * std::cos(lat),
-                 std::cos(angular) - std::sin(lat) * std::sin(projected_lat));
+                             std::atan2(std::sin(bearing) * std::sin(angular) * std::cos(lat),
+                                        std::cos(angular) - std::sin(lat) * std::sin(projected_lat));
   return {projected_lon * 180. / M_PI, projected_lat * 180. / M_PI};
 }
 
@@ -37,21 +36,20 @@ size_t append_round_trip_candidates(Options& options) {
     throw valhalla_exception_t{113, "exactly one of target_distance or target_time"};
   // A motorcycle minute is estimated as 0.92 km solely to place initial
   // anchors. Thor scores actual route time and distance afterwards.
-  double target_meters = round_trip.target_distance() > 0
-                              ? round_trip.target_distance() * 1000.
-                              : round_trip.target_time() * 920.;
+  double target_meters = round_trip.target_distance() > 0 ? round_trip.target_distance() * 1000.
+                                                          : round_trip.target_time() * 920.;
   if (options.units() == Options::miles && round_trip.target_distance() > 0)
     target_meters *= 1.609344;
-  const auto origin = midgard::PointLL(options.locations(0).ll().lng(),
-                                        options.locations(0).ll().lat());
+  const auto origin =
+      midgard::PointLL(options.locations(0).ll().lng(), options.locations(0).ll().lat());
   const auto last = midgard::PointLL(options.locations().rbegin()->ll().lng(),
                                      options.locations().rbegin()->ll().lat());
   double prefix_meters = 0.;
   for (int i = 1; i < options.locations_size(); ++i) {
-    const auto from = midgard::PointLL(options.locations(i - 1).ll().lng(),
-                                       options.locations(i - 1).ll().lat());
-    const auto to = midgard::PointLL(options.locations(i).ll().lng(),
-                                     options.locations(i).ll().lat());
+    const auto from =
+        midgard::PointLL(options.locations(i - 1).ll().lng(), options.locations(i - 1).ll().lat());
+    const auto to =
+        midgard::PointLL(options.locations(i).ll().lng(), options.locations(i).ll().lat());
     prefix_meters += from.Distance(to);
   }
   const auto count = std::clamp(round_trip.candidates(), 1u, 24u);
@@ -63,16 +61,14 @@ size_t append_round_trip_candidates(Options& options) {
     // after accounting for fixed vias. This makes the first candidates useful
     // instead of blindly trying many radii. Alternating road-stretch estimates
     // brackets regions whose road network is more or less direct.
-    const auto bearing = options.locations_size() > 1
-                             ? std::fmod(outward_bearing +
-                                             side * (105. + kGoldenAngleDegrees * i) + 720.,
-                                         360.)
-                             : std::fmod(rotation + kGoldenAngleDegrees * i, 360.);
+    const auto bearing =
+        options.locations_size() > 1
+            ? std::fmod(outward_bearing + side * (105. + kGoldenAngleDegrees * i) + 720., 360.)
+            : std::fmod(rotation + kGoldenAngleDegrees * i, 360.);
     const auto target_air_meters =
         target_meters / kEstimatedRoadStretch[i % std::size(kEstimatedRoadStretch)];
     const auto minimum_anchor_legs = last.Distance(origin) + std::max(1000., target_meters * .04);
-    const auto desired_anchor_legs =
-        std::max(minimum_anchor_legs, target_air_meters - prefix_meters);
+    const auto desired_anchor_legs = std::max(minimum_anchor_legs, target_air_meters - prefix_meters);
     double low = 500.;
     double high = std::clamp(target_meters, 5000., 2500000.);
     for (size_t iteration = 0; iteration < 28; ++iteration) {
@@ -155,14 +151,15 @@ void loki_worker_t::route(Api& request) {
     if (options.units() == Options::miles && round_trip.target_distance() > 0)
       target_km *= 1.609344f;
     if (target_km > max_round_trip_distance_km)
-      throw valhalla_exception_t{154, " for round_trip: " +
-                                          std::to_string(static_cast<int>(max_round_trip_distance_km)) +
-                                          " km"};
+      throw valhalla_exception_t{154,
+                                 " for round_trip: " +
+                                     std::to_string(static_cast<int>(max_round_trip_distance_km)) +
+                                     " km"};
   }
   const auto original_location_count = options.locations_size();
   const auto generated_candidate_count = append_round_trip_candidates(options);
-  for (size_t i = original_location_count;
-       i < original_location_count + generated_candidate_count; ++i)
+  for (size_t i = original_location_count; i < original_location_count + generated_candidate_count;
+       ++i)
     parse_location(*options.mutable_locations(i));
   const auto& costing_name = Costing_Enum_Name(options.costing_type());
   if (request.options().action() == Options::centroid) {
@@ -324,8 +321,7 @@ void loki_worker_t::route(Api& request) {
       }
       // Remove generated anchors and the duplicate origin. Thor consumes the
       // correlated anchors from RoundTripOptions instead.
-      locations->DeleteSubrange(original_location_count,
-                                locations->size() - original_location_count);
+      locations->DeleteSubrange(original_location_count, locations->size() - original_location_count);
       if (round_trip->anchors().empty())
         throw valhalla_exception_t{171};
       return;

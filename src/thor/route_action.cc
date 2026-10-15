@@ -258,9 +258,8 @@ namespace thor {
 // Find graph edges in the route's tile bins and their immediate neighbours,
 // then retain only edges whose geometry enters the requested corridor. The
 // supported radius is deliberately smaller than a hierarchy-level bin.
-std::unordered_set<GraphId> edges_near_line(baldr::GraphReader& reader,
-                                            const std::vector<PointLL>& line_shape,
-                                            float radius) {
+std::unordered_set<GraphId>
+edges_near_line(baldr::GraphReader& reader, const std::vector<PointLL>& line_shape, float radius) {
   if (line_shape.size() < 2 || radius <= 0)
     return {};
 
@@ -341,7 +340,8 @@ void add_cost_factor_edges(const sif::mode_costing_t& costing,
       }
     } else {
       std::vector<std::vector<PathInfo>> legs;
-      if (!RouteMatcher::FormPath(costing, mode, reader, line, false, /* use_shortcuts=*/true, legs)) {
+      if (!RouteMatcher::FormPath(costing, mode, reader, line, false, /* use_shortcuts=*/true,
+                                  legs)) {
         throw valhalla_exception_t{233};
       }
       for (const auto& leg : legs) {

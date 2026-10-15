@@ -179,8 +179,7 @@ void thor_worker_t::round_trip(Api& request) {
   TripRoute prefix_route;
   std::vector<ReusedEdges> prefix_used;
   for (int i = 0; i + 1 < options.locations_size(); ++i) {
-    if (!append_leg(options.locations(i), options.locations(i + 1), prefix_used, prefix_route,
-                    true))
+    if (!append_leg(options.locations(i), options.locations(i + 1), prefix_used, prefix_route, true))
       throw valhalla_exception_t{442};
   }
 
@@ -216,9 +215,8 @@ void thor_worker_t::round_trip(Api& request) {
       candidate.score += .25;
     LOG_DEBUG("round_trip candidate length=" + std::to_string(route_length(candidate.route)) +
               " overlap=" + std::to_string(candidate.overlap) +
-              " target_error=" + std::to_string(candidate.target_error) +
-              " anchor_uturn=" + std::to_string(candidate.anchor_uturn) +
-              " score=" + std::to_string(candidate.score));
+              " target_error=" + std::to_string(candidate.target_error) + " anchor_uturn=" +
+              std::to_string(candidate.anchor_uturn) + " score=" + std::to_string(candidate.score));
 
     if (!found || candidate.score < best.score) {
       best = std::move(candidate);
@@ -275,10 +273,9 @@ void thor_worker_t::round_trip(Api& request) {
 
   if (!found)
     throw valhalla_exception_t{442};
-  LOG_INFO("round_trip selected overlap=" + std::to_string(best.overlap) +
-           " target_error=" + std::to_string(best.target_error) +
-           " candidates=" + std::to_string(evaluated) + "/" + std::to_string(examined) +
-           " prefix_legs=" + std::to_string(prefix_route.legs_size()));
+  LOG_INFO("round_trip selected overlap=" + std::to_string(best.overlap) + " target_error=" +
+           std::to_string(best.target_error) + " candidates=" + std::to_string(evaluated) + "/" +
+           std::to_string(examined) + " prefix_legs=" + std::to_string(prefix_route.legs_size()));
 
   const auto leg_count = best.route.legs_size();
   for (int i = 0; i < leg_count; ++i) {
