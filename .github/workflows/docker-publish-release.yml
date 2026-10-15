@@ -1,0 +1,70 @@
+name: Build and Push Valhalla Docker Images
+
+# Publish release-tagged images for the cluster.
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+
+permissions:
+  contents: read
+
+env:
+  GHCR_TOKEN: ${{ secrets.GHCR_TOKEN }}
+  GHCR_USER: ${{ secrets.GHCR_USER }}
+  CONTAINER_NAME: benciks/valhalla
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Set image version
+        shell: bash
+        run: |
+          set -euo pipefail
+          raw_tag="${GITHUB_REF#refs/tags/}"
+          version="${raw_tag#*@}"
+          echo "VERSION=${version}" >> "$GITHUB_ENV"
+          echo "VERSION_MODIFIER=$(git rev-parse --short HEAD)" >> "$GITHUB_ENV"
+          echo "Version: ${version}"
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ env.GHCR_USER }}
+          password: ${{ env.GHCR_TOKEN }}
+
+      # The scripted image is built on top of the plain image. Publish the
+      # plain image first so the Dockerfile-scripted base reference is valid.
+      - name: Build and push plain image
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${CONTAINER_NAME}"
+          docker build \
+            --file docker/Dockerfile \
+            --build-arg VERSION_MODIFIER="${VERSION_MODIFIER}" \
+            --tag "${image}:${VERSION}" \
+            --tag "${image}:latest" \
+            .
+          docker push "${image}:${VERSION}"
+          docker push "${image}:latest"
+
+      - name: Build and push scripted image
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${CONTAINER_NAME}-scripted"
+          docker build \
+            --file docker/Dockerfile-scripted \
+            --build-arg VALHALLA_BUILDER_IMAGE="ghcr.io/${CONTAINER_NAME}:${VERSION}" \
+            --tag "${image}:${VERSION}" \
+            --tag "${image}:latest" \
+            .
+          docker push "${image}:${VERSION}"
+          docker push "${image}:latest"
