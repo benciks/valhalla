@@ -5,16 +5,8 @@
 #include <valhalla/proto/options.pb.h>
 #include <valhalla/sif/dynamiccost.h>
 
-#include <unordered_set>
-#include <vector>
-
 namespace valhalla {
 namespace loki {
-
-// Directed graph edges whose geometry comes within `radius` meters of the line
-std::unordered_set<baldr::GraphId> edges_near_line(baldr::GraphReader& reader,
-                                                   const std::vector<midgard::PointLL>& line_shape,
-                                                   float radius);
 
 /**
  * Resolve linear cost features into edge ID with a range and a cost factor by edge

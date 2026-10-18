@@ -394,9 +394,6 @@ message LinearFeatureCost {
   repeated Location shape = 2;                                   // This is where the actual line geometry goes
   double cost_factor = 3;
   uint32 allow_types = 5;                                        // whether edges along this shape may be used unconditionally
-  bool bidirectional = 6;                                        // apply the factor to opposing directed edges as well
-  float radius = 7;                                              // also apply the factor to edges within this many meters
-  repeated uint64 edge_ids = 8;                                  // pre-resolved graph edges; skips shape edge walking
 }
 
 // Parameters for graph-native round-trip generation. Candidate anchors are
@@ -404,11 +401,9 @@ message LinearFeatureCost {
 message RoundTripOptions {
   float target_distance = 1;                                     // requested route length, in request units
   float target_time = 2;                                         // requested route duration, in minutes
-  float overlap_radius = 3;                                      // corridor around used roads to discourage, in meters
   float max_overlap = 4;                                         // preferred maximum repeated-edge fraction [0, 1]
   uint32 seed = 5;                                                // deterministic candidate rotation
   uint32 candidates = 6;                                         // number of graph anchors to evaluate
-  float reuse_factor = 7;                                        // dynamic cost multiplier for previously used roads
   bool prefer_under = 8;                                         // strongly penalize routes above the target
   bool prefer_at_least = 9;                                      // strongly penalize routes below the target
   repeated Location anchors = 10;                                // internal correlated candidate anchors

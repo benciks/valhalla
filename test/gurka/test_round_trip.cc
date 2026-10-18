@@ -24,7 +24,7 @@ TEST(Standalone, GraphNativeRoundTrip) {
   const auto layout = gurka::detail::map_to_coordinates(ascii_map, grid_size_metres);
   const auto map = gurka::buildtiles(layout, ways, {}, {}, VALHALLA_BUILD_DIR "test/data/round_trip");
   const auto request = std::format(
-      R"({{"locations":[{{"lat":{:.6f},"lon":{:.6f}}}],"target_distance":0.8,"costing":"motorcycle","round_trip_options":{{"candidates":8,"seed":3,"max_overlap":0.02,"reuse_factor":8,"overlap_radius":50}}}})",
+      R"({{"locations":[{{"lat":{:.6f},"lon":{:.6f}}}],"target_distance":0.8,"costing":"motorcycle","round_trip_options":{{"candidates":8,"seed":3,"max_overlap":0.02}}}})",
       layout.at("A").lat(), layout.at("A").lng());
 
   std::string response;
@@ -41,7 +41,7 @@ TEST(Standalone, GraphNativeRoundTrip) {
   // An explicit via is a fixed prefix. Thor should preserve it in the result
   // while reusing its already-routed leg across anchor candidates.
   const auto via_request = std::format(
-      R"({{"locations":[{{"lat":{:.6f},"lon":{:.6f}}},{{"lat":{:.6f},"lon":{:.6f}}}],"target_distance":1.0,"costing":"motorcycle","round_trip_options":{{"candidates":8,"seed":3,"max_overlap":0.1,"reuse_factor":8,"overlap_radius":50}}}})",
+      R"({{"locations":[{{"lat":{:.6f},"lon":{:.6f}}},{{"lat":{:.6f},"lon":{:.6f}}}],"target_distance":1.0,"costing":"motorcycle","round_trip_options":{{"candidates":8,"seed":3,"max_overlap":0.1}}}})",
       layout.at("A").lat(), layout.at("A").lng(), layout.at("C").lat(), layout.at("C").lng());
   const auto via_result = gurka::do_action(Options::route, map, via_request);
   ASSERT_EQ(via_result.trip().routes_size(), 1);

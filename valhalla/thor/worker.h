@@ -141,9 +141,6 @@ protected:
   hierarchy_limits_config_t hierarchy_limits_config_bidirectional_astar;
   hierarchy_limits_config_t hierarchy_limits_config_costmatrix;
 
-  // round trips resolve the reuse penalties of every leg themselves
-  double min_linear_cost_factor;
-  uint64_t max_linear_cost_edges;
   // Once spent, round trips stop evaluating anchors and return the best loop so far
   float round_trip_time_budget_seconds;
 

@@ -627,12 +627,6 @@ void parse_line_geojson(const rapidjson::Value& json_feat, valhalla::LinearFeatu
   auto props = json_obj["properties"].GetObject();
   line_feat->set_cost_factor(props.HasMember("factor") ? props["factor"].GetFloat() : 1.);
   line_feat->set_allow_types(AllowTypes_Parse(props));
-  if (props.HasMember("bidirectional")) {
-    line_feat->set_bidirectional(props["bidirectional"].GetBool());
-  }
-  if (props.HasMember("radius")) {
-    line_feat->set_radius(props["radius"].GetFloat());
-  }
 }
 
 void parse_line(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* line_feat) {
@@ -649,18 +643,6 @@ void parse_line(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* 
 
   line_feat->set_cost_factor(json_obj.HasMember("factor") ? json_obj["factor"].GetFloat() : 1.);
   line_feat->set_allow_types(AllowTypes_Parse(json_obj));
-  if (json_obj.HasMember("bidirectional")) {
-    line_feat->set_bidirectional(json_obj["bidirectional"].GetBool());
-  }
-  if (json_obj.HasMember("radius")) {
-    line_feat->set_radius(json_obj["radius"].GetFloat());
-  }
-  if (json_obj.HasMember("edge_ids")) {
-    for (const auto& edge_id : json_obj["edge_ids"].GetArray()) {
-      line_feat->add_edge_ids(edge_id.IsString() ? std::stoull(edge_id.GetString())
-                                                 : edge_id.GetUint64());
-    }
-  }
 }
 
 /**
@@ -705,11 +687,7 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
     if (target_time)
       round_trip->set_target_time(*target_time);
     if (round_trip_json) {
-      round_trip->set_overlap_radius(
-          std::clamp(rapidjson::get<float>(*round_trip_json, "/overlap_radius", 50.f), 0.f, 200.f));
       round_trip->set_seed(rapidjson::get<uint32_t>(*round_trip_json, "/seed", 0));
-      round_trip->set_reuse_factor(
-          std::clamp(rapidjson::get<float>(*round_trip_json, "/reuse_factor", 8.f), 1.f, 100.f));
       round_trip->set_prefer_under(rapidjson::get<bool>(*round_trip_json, "/prefer_under", false));
       round_trip->set_prefer_at_least(
           rapidjson::get<bool>(*round_trip_json, "/prefer_at_least", false));
@@ -732,10 +710,6 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
                                                               : target_km >= 500 ? 2u
                                                                                  : 3u),
                                           1u, 24u));
-    if (round_trip->overlap_radius() == 0 && !round_trip_json)
-      round_trip->set_overlap_radius(50.f);
-    if (round_trip->reuse_factor() == 0)
-      round_trip->set_reuse_factor(8.f);
   }
 
   // matrix can be slimmed down but shouldn't by default for backwards-compatibility reasons
