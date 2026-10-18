@@ -210,11 +210,6 @@ void thor_worker_t::route(Api& request) {
   // time this whole method and save that statistic
   auto _ = measure_scope_time(request);
 
-  if (request.options().has_round_trip_options()) {
-    round_trip(request);
-    return;
-  }
-
   auto& options = *request.mutable_options();
   adjust_locations(request);
   controller = AttributesController(options);

@@ -546,6 +546,10 @@ loki_worker_t::work(const std::list<zmq::message_t>& job,
         route(request);
         result.messages.emplace_back(request.SerializeAsString());
         break;
+      case Options::round_trip:
+        round_trip(request);
+        result.messages.emplace_back(request.SerializeAsString());
+        break;
       case Options::locate:
         result = to_response(locate(request), info, request);
         break;

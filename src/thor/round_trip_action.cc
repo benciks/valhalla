@@ -45,7 +45,6 @@ struct CandidateResult {
   double target_error = std::numeric_limits<double>::max();
   double overlap = 1.;
   double score = std::numeric_limits<double>::max();
-  bool target_mode_satisfied = false;
   bool anchor_uturn = false;
 };
 
@@ -406,10 +405,6 @@ void thor_worker_t::round_trip(Api& request) {
   const auto target = by_time ? static_cast<double>(round_trip.target_time()) * 60.
                               : static_cast<double>(round_trip.target_distance()) *
                                     (options.units() == Options::miles ? kKmPerMile : 1.);
-  // what loops are shortened towards, inside the requested side of the target
-  const auto aim = target * (round_trip.prefer_under()      ? 1. - kShortenTolerance
-                             : round_trip.prefer_at_least() ? 1. + kShortenTolerance
-                                                            : 1.);
   auto measure = [&](const TripRoute& route) {
     return by_time ? route_time_seconds(route) : route_length(route);
   };
@@ -425,20 +420,12 @@ void thor_worker_t::round_trip(Api& request) {
     const auto actual = measure(candidate.route);
     candidate.target_error = std::abs(actual - target) / target;
     candidate.overlap = overlap_fraction(*reader, candidate.route);
-    const auto over_target = actual > target ? (actual - target) / target : 0.;
-    const auto under_target = actual < target ? (target - actual) / target : 0.;
-    candidate.target_mode_satisfied = (!round_trip.prefer_under() || actual <= target) &&
-                                      (!round_trip.prefer_at_least() || actual >= target);
     candidate.score = candidate.target_error + 4. * candidate.overlap;
     // missing the target by more than the tolerance is as bad as riding the same roads twice
     if (candidate.target_error > kEarlyAcceptanceTargetError)
       candidate.score += 4. * (candidate.target_error - kEarlyAcceptanceTargetError);
     if (candidate.overlap > round_trip.max_overlap())
       candidate.score += 10. * (candidate.overlap - round_trip.max_overlap());
-    if (round_trip.prefer_under())
-      candidate.score += 8. * over_target;
-    if (round_trip.prefer_at_least())
-      candidate.score += 8. * under_target;
     // A generated anchor is a shaping point, not a destination. An immediate
     // reversal there creates a conspicuous stem. Keep it as a last-resort
     // fallback, but let any continuous candidate outrank it.
@@ -499,9 +486,8 @@ void thor_worker_t::round_trip(Api& request) {
   for (const auto& anchor : round_trip.anchors()) {
     // Stop early once a diverse minimum set contains a route within the
     // planner's target tolerance and the requested overlap threshold.
-    if (found && evaluated >= minimum_evaluations && best.target_mode_satisfied &&
-        !best.anchor_uturn && best.target_error <= kEarlyAcceptanceTargetError &&
-        best.overlap <= round_trip.max_overlap())
+    if (found && evaluated >= minimum_evaluations && !best.anchor_uturn &&
+        best.target_error <= kEarlyAcceptanceTargetError && best.overlap <= round_trip.max_overlap())
       break;
     // Bound the latency of long loops: once out of time, a usable loop now
     // beats a slightly better one later
@@ -518,7 +504,7 @@ void thor_worker_t::round_trip(Api& request) {
     const auto outbound_edges = edge_ids(outbound);
     const auto progress = leg_progress(outbound, by_time);
     auto actual = consider(std::move(candidate));
-    auto closest_error = std::abs(actual - aim) / aim;
+    auto closest_error = std::abs(actual - target) / target;
 
     // Road distances can't be known in advance, so anchors are placed a little too far out and a
     // loop that comes out too long gets its anchor moved back along the way out. The loop length
@@ -528,10 +514,10 @@ void thor_worker_t::round_trip(Api& request) {
     double short_cut = 0., short_measure = prefix_measure;
     size_t cut_edge = outbound_edges.size() - 1;
     for (size_t shortening = 0;
-         shortening < kMaxShortenings && actual > aim * (1. + kShortenTolerance) && !out_of_time();
+         shortening < kMaxShortenings && actual > target * (1. + kShortenTolerance) && !out_of_time();
          ++shortening) {
-      const auto cut =
-          short_cut + (long_cut - short_cut) * (aim - short_measure) / (long_measure - short_measure);
+      const auto cut = short_cut + (long_cut - short_cut) * (target - short_measure) /
+                                       (long_measure - short_measure);
       const auto next_cut_edge =
           static_cast<size_t>(std::lower_bound(progress.begin(), progress.end(),
                                                std::max(cut, kMinCutFraction * progress.back())) -
@@ -545,11 +531,11 @@ void thor_worker_t::round_trip(Api& request) {
                         shortened))
         break;
       actual = consider(std::move(shortened));
-      closest_error = std::min(closest_error, std::abs(actual - aim) / aim);
-      if (std::abs(actual - aim) <= aim * kShortenTolerance)
+      closest_error = std::min(closest_error, std::abs(actual - target) / target);
+      if (std::abs(actual - target) <= target * kShortenTolerance)
         break;
-      (actual > aim ? long_cut : short_cut) = progress[cut_edge];
-      (actual > aim ? long_measure : short_measure) = actual;
+      (actual > target ? long_cut : short_cut) = progress[cut_edge];
+      (actual > target ? long_measure : short_measure) = actual;
     }
 
     // where carrying on past the anchor can't make a loop of about the right size, e.g. on a dead

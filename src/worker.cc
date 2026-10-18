@@ -67,15 +67,17 @@ bool is_format_supported(Options::Action action, Options::Format format) {
       // json
       0xFFFF, // all actions support json
       // gpx
-      (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route),
+      (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route) |
+          (1 << Options::round_trip),
       // osrm
       (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route) |
-          (1 << Options::trace_attributes) | (1 << Options::locate) | (1 << Options::status) |
-          (1 << Options::sources_to_targets) | (1 << Options::expansion),
+          (1 << Options::round_trip) | (1 << Options::trace_attributes) | (1 << Options::locate) |
+          (1 << Options::status) | (1 << Options::sources_to_targets) | (1 << Options::expansion),
       // pbf
       (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route) |
-          (1 << Options::centroid) | (1 << Options::trace_attributes) | (1 << Options::status) |
-          (1 << Options::sources_to_targets) | (1 << Options::isochrone) | (1 << Options::expansion),
+          (1 << Options::round_trip) | (1 << Options::centroid) | (1 << Options::trace_attributes) |
+          (1 << Options::status) | (1 << Options::sources_to_targets) | (1 << Options::isochrone) |
+          (1 << Options::expansion),
   // geotiff
 #ifdef ENABLE_GEOTIFF
       (1 << Options::isochrone),
@@ -645,6 +647,15 @@ void parse_line(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* 
   line_feat->set_allow_types(AllowTypes_Parse(json_obj));
 }
 
+void parse_round_trip(const rapidjson::Document& doc, Options& options) {
+  auto& round_trip = *options.mutable_round_trip_options();
+  if (auto target_distance = rapidjson::get_optional<float>(doc, "/target_distance"))
+    round_trip.set_target_distance(*target_distance);
+  if (auto target_time = rapidjson::get_optional<float>(doc, "/target_time"))
+    round_trip.set_target_time(*target_time);
+  round_trip.set_seed(rapidjson::get<uint32_t>(doc, "/round_trip_options/seed", 0));
+}
+
 /**
  * This function takes a json document and parses it into an options (request pbf) object.
  * The implementation is such that if you passed an already filled out options object the
@@ -674,43 +685,8 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
     options.set_action(action);
   auto& warnings = *api.mutable_info()->mutable_warnings();
 
-  // /round_trip is intentionally represented by the regular route action so
-  // the result follows the existing Loki -> Thor -> Odin pipeline. These
-  // options are the discriminator used by Loki and Thor.
-  const auto target_distance = rapidjson::get_optional<float>(doc, "/target_distance");
-  const auto target_time = rapidjson::get_optional<float>(doc, "/target_time");
-  const auto round_trip_json = rapidjson::get_child_optional(doc, "/round_trip_options");
-  if (target_distance || target_time || round_trip_json || options.has_round_trip_options()) {
-    auto* round_trip = options.mutable_round_trip_options();
-    if (target_distance)
-      round_trip->set_target_distance(*target_distance);
-    if (target_time)
-      round_trip->set_target_time(*target_time);
-    if (round_trip_json) {
-      round_trip->set_seed(rapidjson::get<uint32_t>(*round_trip_json, "/seed", 0));
-      round_trip->set_prefer_under(rapidjson::get<bool>(*round_trip_json, "/prefer_under", false));
-      round_trip->set_prefer_at_least(
-          rapidjson::get<bool>(*round_trip_json, "/prefer_at_least", false));
-    }
-    // Unless the caller overrides them, size the search to the target. Every
-    // candidate costs two full graph searches, so short loops can afford more
-    // of them under a stricter overlap limit and very long loops get fewer.
-    // A motorcycle minute is estimated as 0.92 km, as for anchor placement.
-    const auto target_km = round_trip->target_distance() > 0 ? round_trip->target_distance()
-                                                             : round_trip->target_time() * .92f;
-    boost::optional<float> max_overlap;
-    boost::optional<unsigned int> candidates;
-    if (round_trip_json) {
-      max_overlap = rapidjson::get_optional<float>(*round_trip_json, "/max_overlap");
-      candidates = rapidjson::get_optional<unsigned int>(*round_trip_json, "/candidates");
-    }
-    round_trip->set_max_overlap(
-        std::clamp(max_overlap.value_or(target_km < 100 ? .005f : .02f), 0.f, 1.f));
-    round_trip->set_candidates(std::clamp(candidates.value_or(target_km < 100    ? 5u
-                                                              : target_km >= 500 ? 2u
-                                                                                 : 3u),
-                                          1u, 24u));
-  }
+  if (options.action() == Options::round_trip)
+    parse_round_trip(doc, options);
 
   // matrix can be slimmed down but shouldn't by default for backwards-compatibility reasons
   if (options.action() == Options::sources_to_targets) {
@@ -1115,17 +1091,6 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
 
   // get the locations in there
   parse_locations(doc, api, "locations", 130, ignore_closures, had_date_time);
-  // /round_trip also accepts the ergonomic singular `location` form.
-  if (options.has_round_trip_options() && options.locations().empty()) {
-    auto location_json = rapidjson::get_child_optional(doc, "/location");
-    if (location_json) {
-      auto* location = options.add_locations();
-      location->mutable_correlation()->set_original_index(0);
-      parse_location(location, *location_json, api, ignore_closures, true);
-      location->set_type(Location::kBreak);
-    }
-  }
-
   // get the sources in there
   parse_locations(doc, api, "sources", 131, ignore_closures, had_date_time);
 

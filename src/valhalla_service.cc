@@ -117,6 +117,9 @@ int main(int argc, char** argv) {
         case valhalla::Options::route:
           std::cout << actor.route(request_str, nullptr, &request) << std::endl;
           break;
+        case valhalla::Options::round_trip:
+          std::cout << actor.round_trip(request_str, nullptr, &request) << std::endl;
+          break;
         case valhalla::Options::locate:
           std::cout << actor.locate(request_str, nullptr, &request) << std::endl;
           break;

@@ -396,17 +396,13 @@ message LinearFeatureCost {
   uint32 allow_types = 5;                                        // whether edges along this shape may be used unconditionally
 }
 
-// Parameters for graph-native round-trip generation. Candidate anchors are
-// populated internally by Loki after correlation and are not request fields.
+// Parameters of the /round_trip action. max_overlap and anchors are set internally by Loki.
 message RoundTripOptions {
-  float target_distance = 1;                                     // requested route length, in request units
-  float target_time = 2;                                         // requested route duration, in minutes
+  float target_distance = 1;                                     // requested loop length, in request units
+  float target_time = 2;                                         // requested loop duration, in minutes
+  uint32 seed = 3;                                               // rotates where the loop's anchors are placed
   float max_overlap = 4;                                         // preferred maximum repeated-edge fraction [0, 1]
-  uint32 seed = 5;                                                // deterministic candidate rotation
-  uint32 candidates = 6;                                         // number of graph anchors to evaluate
-  bool prefer_under = 8;                                         // strongly penalize routes above the target
-  bool prefer_at_least = 9;                                      // strongly penalize routes below the target
-  repeated Location anchors = 10;                                // internal correlated candidate anchors
+  repeated Location anchors = 5;                                 // correlated candidate anchors
 }
 
 message Options {
@@ -440,6 +436,7 @@ message Options {
     centroid = 11;
     status = 12;
     tile = 13;
+    round_trip = 14;
   }
 
   enum DateTimeType {
@@ -576,5 +573,5 @@ message Options {
   TileOptions tile_options = 64;                                   // additional /tile specific options
   repeated Levels exclude_levels = 65;                             // Levels to exclude within the exclude_polygon at the same index
   uint32 expansion_max_distance = 66;                              // Maximum path distance in meters for expansion. 0 = disabled.
-  RoundTripOptions round_trip_options = 68;                         // Enables graph-native round-trip generation
+  RoundTripOptions round_trip_options = 67;                        // /round_trip specific options
 }

@@ -377,27 +377,30 @@ For example a bus request with the result in Spanish using the OSRM (Open Source
 | `linear_cost_factors` | Customized cost factors that influence path finding, specified as an array of JSON objects. Objects can be either a GeoJSON linestring feature or a plain object with a "shape" key whose value needs to be an encoded polyline with 6-digit precision. Valhalla will perform an edge walk (see [the map matching documentation](../map-matching.md) for more info) to match the geometry onto edges. The plain object or the GeoJSON properties then carry further information that controls how these edges are treated differently. Currently, the following are supported: <ul><li>`factor` (non-negative float): edges with factors larger than 1 will be increasingly avoided, while edges with factors smaller than 1 increasingly favored. Default 1 (no change).</li><li>**BETA**: `allow_types` (list of strings) for allowing edges. Currently, only `"all"` is supported, which unconditionally allows edge access.</li></ul> |
 | `reverse_time_tracking` (**BETA**) | Which time tracking strategy to use on the non-time aware expansion in the bidirectional routing algorithm: `disabled` will assume no time, `heuristic` will try a best guess based on the bee line distance between origin and destination. Default `heuristic` |
 
-### Graph-native round trips
+### Round trips
 
-`POST /round_trip` accepts one origin (`location` or the first item in `locations`), optional explicit via locations, and exactly one of `target_distance` (in request units) or `target_time` (minutes). Loki creates and correlates target-aware graph anchors after accounting for the fixed vias, rejecting cul-de-sac candidates. Thor routes the fixed via prefix once, then evaluates each candidate one leg at a time while applying a cost penalty to the exact and nearby edges used by earlier legs. Evaluation stops once a candidate is within 10% of the target and below the requested overlap threshold; otherwise the best complete candidate is returned. The response has the standard route shape.
+`POST /round_trip` returns a loop of about the requested length or duration that starts and ends at the first location. It takes the same request as `/route`, where `locations` holds the origin followed by any vias the loop has to pass in order, plus exactly one of:
+
+| Parameter | Description |
+| :--- | :--- |
+| `target_distance` | The loop's length, in the request's `units`. |
+| `target_time` | The loop's duration, in minutes. |
+
+and optionally `round_trip_options.seed`, which rotates where the loop heads off to. The same seed gives the same loop, default `0`.
 
 ```json
 {
-  "location": {"lat": 49.1951, "lon": 16.6068},
-  "target_distance": 50,
+  "locations": [{"lat": 49.1951, "lon": 16.6068}],
+  "target_distance": 150,
   "costing": "motorcycle",
   "costing_options": {"motorcycle": {"use_curvature": 0.8}},
-  "round_trip_options": {
-    "overlap_radius": 50,
-    "max_overlap": 0.02,
-    "reuse_factor": 8,
-    "candidates": 3,
-    "seed": 123
-  }
+  "round_trip_options": {"seed": 123}
 }
 ```
 
-Overlap is a soft constraint because an origin on a single-access road cannot form a zero-overlap loop. `prefer_under` strongly penalizes candidates above the requested target; `prefer_at_least` does the same for candidates below it. Ordinary `/route` requests never apply round-trip reuse penalties.
+Loki places a few candidate anchors around the origin, past the last via, as far out as the target suggests. Thor routes the loop out to an anchor and back, making every road used on the way out, and those within 50 meters of it, expensive for the way back so the loop doesn't retrace itself. A loop that comes out too long has its anchor moved back along the way out until it fits. Thor stops once a loop is within 10% of the target and barely reuses any road, and otherwise returns the best one it found. Reusing roads can't always be avoided, e.g. starting on a dead end, so it is only discouraged. The response has the shape of a `/route` response with one leg per via plus two for the anchor.
+
+The `service_limits.round_trip` config section bounds the number of locations (`max_locations`), the target (`max_distance_km`, a `target_time` is converted with a rough average speed of the costing) and how long Thor keeps trying anchors (`max_search_seconds`).
 
 [openlr]: https://www.openlr-association.com/fileadmin/user_upload/openlr-whitepaper_v1.5.pdf
 
@@ -682,6 +685,7 @@ The codes correspond to code returned from a particular [Valhalla project](https
 |110 | Insufficiently specified required parameter 'locations' |
 |111 | Insufficiently specified required parameter 'time' |
 |112 | Insufficiently specified required parameter 'locations' or 'sources & targets' |
+|116 | Insufficiently specified required parameter, exactly one of 'target_distance' or 'target_time' |
 |113 | Insufficiently specified required parameter 'contours' |
 |114 | Insufficiently specified required parameter 'shape' or 'encoded_polyline' |
 |120 | Insufficient number of locations provided |

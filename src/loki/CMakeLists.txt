@@ -13,6 +13,7 @@ set(sources
   height_action.cc
   locate_action.cc
   node_search.cc
+  round_trip_action.cc
   route_action.cc
   search.cc
   tile_action.cc

@@ -37,6 +37,7 @@ public:
 
   std::string locate(Api& request);
   void route(Api& request);
+  void round_trip(Api& request);
   void matrix(Api& request);
   void isochrones(Api& request);
   void trace(Api& request);

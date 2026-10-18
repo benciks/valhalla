@@ -113,7 +113,6 @@ const std::string& GuidanceViewTypeToString(const valhalla::DirectionsLeg_Guidan
 bool Options_Action_Enum_Parse(const std::string& action, Options::Action* a) {
   static const std::unordered_map<std::string, Options::Action> actions{
       {"route", Options::route},
-      {"round_trip", Options::route},
       {"locate", Options::locate},
       {"sources_to_targets", Options::sources_to_targets},
       {"optimized_route", Options::optimized_route},
@@ -124,6 +123,7 @@ bool Options_Action_Enum_Parse(const std::string& action, Options::Action* a) {
       {"transit_available", Options::transit_available},
       {"expansion", Options::expansion},
       {"centroid", Options::centroid},
+      {"round_trip", Options::round_trip},
       {"status", Options::status},
       {"tile", Options::tile},
   };
@@ -159,6 +159,7 @@ const std::string& Options_Action_Enum_Name(const Options::Action action) {
       {Options::transit_available, "transit_available"},
       {Options::expansion, "expansion"},
       {Options::centroid, "centroid"},
+      {Options::round_trip, "round_trip"},
       {Options::status, "status"},
       {Options::tile, "tile"},
   };

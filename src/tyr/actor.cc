@@ -84,6 +84,8 @@ std::string actor_t::act(Api& api, const std::function<void()>* interrupt) {
       return expansion("", interrupt, &api);
     case Options::centroid:
       return centroid("", interrupt, &api);
+    case Options::round_trip:
+      return round_trip("", interrupt, &api);
     case Options::status:
       return status("", interrupt, &api);
     case Options::tile:
@@ -321,6 +323,31 @@ actor_t::expansion(const std::string& request_str, const std::function<void()>* 
   // route between the locations in the graph to find the best path
   auto json = pimpl->thor_worker.expansion(*api);
   return json;
+}
+
+std::string actor_t::round_trip(const std::string& request_str,
+                                const std::function<void()>* interrupt,
+                                Api* api) {
+  auto scoped_cleaner = make_finally([this]() {
+    if (auto_cleanup)
+      cleanup();
+  });
+  // set the interrupts
+  pimpl->set_interrupts(interrupt);
+  // if the caller doesn't want a copy we'll use this dummy
+  Api dummy;
+  if (!api) {
+    api = &dummy;
+  }
+  // parse the request
+  ParseApi(request_str, Options::round_trip, *api);
+  // locate the origin and vias and place the loop's candidate anchors in the graph
+  pimpl->loki_worker.round_trip(*api);
+  // route the loop through the anchor that best matches the target
+  pimpl->thor_worker.round_trip(*api);
+  // get some directions back from them and serialize
+  auto bytes = pimpl->odin_worker.narrate(*api);
+  return bytes;
 }
 
 std::string
