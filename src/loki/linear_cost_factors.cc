@@ -3,6 +3,8 @@
 #include "midgard/tiles.h"
 #include "thor/route_matcher.h"
 
+#include <cmath>
+#include <unordered_map>
 #include <unordered_set>
 
 using namespace valhalla;
@@ -67,16 +69,74 @@ void add_shortcut(GraphReader& reader,
              static_cast<double>(shortcut_edge->length()));
 }
 
+// Buckets the line's segments into cells at least `radius` wide, so a point only has to be
+// compared against the segments of its own cell instead of against the whole line
+class SegmentGrid {
+public:
+  SegmentGrid(const std::vector<PointLL>& line, float radius) : line_(line) {
+    double max_lat = 0.;
+    for (const auto& p : line)
+      max_lat = std::max(max_lat, std::abs(p.lat()));
+    lat_size_ = radius / kMetersPerDegreeLat;
+    lng_size_ = lat_size_ / std::cos(max_lat * kRadPerDegD);
+
+    // split segments into cell sized pieces, then register each piece with every cell its
+    // bounding box, padded by the radius, overlaps
+    for (size_t i = 0; i + 1 < line.size(); ++i) {
+      const auto& u = line[i];
+      const auto& v = line[i + 1];
+      const auto pieces = std::max(1., std::ceil(std::max(std::abs(v.lat() - u.lat()) / lat_size_,
+                                                          std::abs(v.lng() - u.lng()) / lng_size_)));
+      for (double piece = 0; piece < pieces; ++piece) {
+        const PointLL a(u.lng() + (v.lng() - u.lng()) * piece / pieces,
+                        u.lat() + (v.lat() - u.lat()) * piece / pieces);
+        const PointLL b(u.lng() + (v.lng() - u.lng()) * (piece + 1) / pieces,
+                        u.lat() + (v.lat() - u.lat()) * (piece + 1) / pieces);
+        for (auto x = cell(std::min(a.lng(), b.lng()) - lng_size_, lng_size_);
+             x <= cell(std::max(a.lng(), b.lng()) + lng_size_, lng_size_); ++x) {
+          for (auto y = cell(std::min(a.lat(), b.lat()) - lat_size_, lat_size_);
+               y <= cell(std::max(a.lat(), b.lat()) + lat_size_, lat_size_); ++y) {
+            auto& segments = cells_[key(x, y)];
+            if (segments.empty() || segments.back() != i)
+              segments.push_back(i);
+          }
+        }
+      }
+    }
+  }
+
+  bool is_within(const PointLL& point, float radius) const {
+    const auto found = cells_.find(key(cell(point.lng(), lng_size_), cell(point.lat(), lat_size_)));
+    if (found == cells_.cend())
+      return false;
+    for (const auto segment : found->second) {
+      // a tiny forward cutoff limits ClosestPoint to the one segment starting at the pivot
+      if (std::get<1>(point.ClosestPoint(line_, segment, 1e-9)) <= radius)
+        return true;
+    }
+    return false;
+  }
+
+private:
+  static int64_t cell(double coordinate, double size) {
+    return static_cast<int64_t>(std::floor(coordinate / size));
+  }
+  static uint64_t key(int64_t x, int64_t y) {
+    return (static_cast<uint64_t>(x) << 32) ^ static_cast<uint32_t>(y);
+  }
+
+  const std::vector<PointLL>& line_;
+  double lat_size_;
+  double lng_size_;
+  std::unordered_map<uint64_t, std::vector<size_t>> cells_;
+};
+
 // Test a candidate edge at regular intervals rather than only at its shape
 // vertices. This catches a long parallel edge whose endpoints lie outside the
 // corridor, while keeping the distance calculation local and inexpensive.
-bool is_near_line(const std::vector<PointLL>& candidate,
-                  const std::vector<PointLL>& line,
-                  float radius) {
-  if (candidate.empty() || line.empty())
-    return false;
+bool is_near_line(const std::vector<PointLL>& candidate, const SegmentGrid& line, float radius) {
   if (candidate.size() == 1)
-    return std::get<1>(candidate.front().ClosestPoint(line)) <= radius;
+    return line.is_within(candidate.front(), radius);
 
   for (size_t i = 1; i < candidate.size(); ++i) {
     const auto& from = candidate[i - 1];
@@ -87,7 +147,7 @@ bool is_near_line(const std::vector<PointLL>& candidate,
       const auto ratio = static_cast<double>(sample) / samples;
       PointLL point(from.lng() + (to.lng() - from.lng()) * ratio,
                     from.lat() + (to.lat() - from.lat()) * ratio);
-      if (std::get<1>(point.ClosestPoint(line)) <= radius)
+      if (line.is_within(point, radius))
         return true;
     }
   }
@@ -131,13 +191,14 @@ edges_near_line(GraphReader& reader, const std::vector<PointLL>& line_shape, flo
     }
   }
 
+  const SegmentGrid grid(line_shape, radius);
   std::unordered_set<GraphId> nearby;
   for (const auto& edge_id : candidates) {
     auto tile = reader.GetGraphTile(edge_id);
     if (!tile)
       continue;
     const auto shape = tile->edgeinfo(tile->directededge(edge_id)).shape();
-    if (is_near_line(shape, line_shape, radius))
+    if (is_near_line(shape, grid, radius))
       nearby.insert(edge_id);
   }
   return nearby;
