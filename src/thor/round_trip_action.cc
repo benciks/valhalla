@@ -1,3 +1,4 @@
+#include "loki/linear_cost_factors.h"
 #include "midgard/encoded.h"
 #include "midgard/logging.h"
 #include "midgard/polyline2.h"
@@ -70,7 +71,7 @@ ReusedEdges reused_edges(GraphReader& reader, const TripLeg& leg, float overlap_
     // prevents that comparison from becoming quadratic on long routes.
     if (shape.size() > 2)
       Polyline2<PointLL>::Generalize(shape, std::max(2., std::min(10., overlap_radius * .2)));
-    for (const auto& edge : thor::edges_near_line(reader, shape, overlap_radius))
+    for (const auto& edge : loki::edges_near_line(reader, shape, overlap_radius))
       add_both_directions(edge);
   }
   return {edges.begin(), edges.end()};
@@ -152,9 +153,14 @@ void thor_worker_t::round_trip(Api& request) {
     leg_request.mutable_options()->add_locations()->CopyFrom(to);
     leg_request.mutable_options()->mutable_locations(0)->set_type(Location::kBreak);
     leg_request.mutable_options()->mutable_locations(1)->set_type(Location::kBreak);
+    // Loki already resolved the user's own lines into costing edges, only the
+    // reuse penalties of this leg are left to resolve
+    leg_request.mutable_options()->clear_cost_factor_lines();
     add_reuse_factors(*leg_request.mutable_options(), used, round_trip);
 
     try {
+      loki::add_cost_factor_edges(mode_costing, mode, *reader, *leg_request.mutable_options(),
+                                  min_linear_cost_factor, max_linear_cost_edges);
       route(leg_request);
     } catch (const valhalla_exception_t&) { return false; }
     if (leg_request.trip().routes().empty() || leg_request.trip().routes(0).legs().empty())
