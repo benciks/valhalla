@@ -1,3 +1,4 @@
+#include "midgard/constants.h"
 #include "midgard/encoded.h"
 #include "midgard/logging.h"
 #include "midgard/polyline2.h"
@@ -21,6 +22,11 @@ constexpr size_t kMinimumCandidateEvaluations = 2;
 // The public planner considers an "around" target accurate within 10%. Do not
 // spend many additional full graph searches improving an already exact result.
 constexpr double kEarlyAcceptanceTargetError = .10;
+// a loop longer than this past its target gets its anchor moved closer, a few times at most
+constexpr double kShortenTolerance = .04;
+constexpr size_t kMaxShortenings = 3;
+// an anchor isn't moved back past this share of the way out, the loop would collapse
+constexpr double kMinCutFraction = .2;
 // Cost multiplier for roads an earlier leg used, and the corridor around them that also counts
 // as used so that a parallel carriageway or service road isn't taken back instead
 constexpr double kReuseFactor = 8.;
@@ -289,6 +295,51 @@ double route_length(const TripRoute& route) {
   }
   return length;
 }
+
+// The distance (km) or time (s) covered by the end of each of the leg's edges
+std::vector<double> leg_progress(const TripLeg& leg, bool by_time) {
+  std::vector<double> progress;
+  progress.reserve(leg.node_size());
+  for (int i = 0; i + 1 < leg.node_size(); ++i) {
+    if (by_time)
+      progress.push_back(leg.node(i + 1).cost().elapsed_cost().seconds());
+    else
+      progress.push_back((progress.empty() ? 0. : progress.back()) + leg.node(i).edge().length_km());
+  }
+  return progress;
+}
+
+// The anchor as the start of the next leg, restricted to the edge the previous leg arrived on so
+// that the loop carries on instead of turning around
+Location continuing_from(const Location& anchor, uint64_t arrival_edge) {
+  Location continuing = anchor;
+  auto* edges = continuing.mutable_correlation()->mutable_edges();
+  edges->erase(std::remove_if(edges->begin(), edges->end(),
+                              [&](const PathEdge& edge) { return edge.graph_id() != arrival_edge; }),
+               edges->end());
+  continuing.mutable_correlation()->clear_filtered_edges();
+  return edges->empty() ? anchor : continuing;
+}
+
+// A location at the end node of the edge, correlated to just that edge
+Location location_at_end_of(GraphReader& reader, const Location& anchor, const GraphId& edge) {
+  const auto* directededge = reader.directededge(edge);
+  auto tile = reader.GetGraphTile(directededge->endnode());
+  const auto ll = tile->get_node_ll(directededge->endnode());
+
+  Location location = anchor;
+  location.mutable_ll()->set_lng(ll.lng());
+  location.mutable_ll()->set_lat(ll.lat());
+  location.mutable_correlation()->clear_edges();
+  location.mutable_correlation()->clear_filtered_edges();
+  auto* path_edge = location.mutable_correlation()->add_edges();
+  path_edge->set_graph_id(edge);
+  path_edge->set_percent_along(1.f);
+  path_edge->set_distance(0.f);
+  path_edge->set_end_node(true);
+  path_edge->mutable_ll()->CopyFrom(location.ll());
+  return location;
+}
 } // namespace
 
 namespace valhalla {
@@ -351,18 +402,27 @@ void thor_worker_t::round_trip(Api& request) {
       throw valhalla_exception_t{442};
   }
 
-  const auto target = round_trip.target_distance() > 0
-                          ? static_cast<double>(round_trip.target_distance()) *
-                                (options.units() == Options::miles ? 1.609344 : 1.)
-                          : static_cast<double>(round_trip.target_time()) * 60.;
+  const auto by_time = round_trip.target_distance() <= 0;
+  const auto target = by_time ? static_cast<double>(round_trip.target_time()) * 60.
+                              : static_cast<double>(round_trip.target_distance()) *
+                                    (options.units() == Options::miles ? kKmPerMile : 1.);
+  // what loops are shortened towards, inside the requested side of the target
+  const auto aim = target * (round_trip.prefer_under()      ? 1. - kShortenTolerance
+                             : round_trip.prefer_at_least() ? 1. + kShortenTolerance
+                                                            : 1.);
+  auto measure = [&](const TripRoute& route) {
+    return by_time ? route_time_seconds(route) : route_length(route);
+  };
+  const auto prefix_measure = measure(prefix_route);
+
   CandidateResult best;
   bool found = false;
   size_t evaluated = 0;
 
+  // scores the candidate, keeps it if it's the best so far and returns its length or duration
   auto consider = [&](CandidateResult candidate) {
     ++evaluated;
-    const auto actual = round_trip.target_distance() > 0 ? route_length(candidate.route)
-                                                         : route_time_seconds(candidate.route);
+    const auto actual = measure(candidate.route);
     candidate.target_error = std::abs(actual - target) / target;
     candidate.overlap = overlap_fraction(*reader, candidate.route);
     const auto over_target = actual > target ? (actual - target) / target : 0.;
@@ -370,6 +430,9 @@ void thor_worker_t::round_trip(Api& request) {
     candidate.target_mode_satisfied = (!round_trip.prefer_under() || actual <= target) &&
                                       (!round_trip.prefer_at_least() || actual >= target);
     candidate.score = candidate.target_error + 4. * candidate.overlap;
+    // missing the target by more than the tolerance is as bad as riding the same roads twice
+    if (candidate.target_error > kEarlyAcceptanceTargetError)
+      candidate.score += 4. * (candidate.target_error - kEarlyAcceptanceTargetError);
     if (candidate.overlap > round_trip.max_overlap())
       candidate.score += 10. * (candidate.overlap - round_trip.max_overlap());
     if (round_trip.prefer_under())
@@ -390,6 +453,28 @@ void thor_worker_t::round_trip(Api& request) {
       best = std::move(candidate);
       found = true;
     }
+    return actual;
+  };
+
+  // The loop out to the anchor and back to the origin, by default continuing past the anchor
+  // rather than turning around at it
+  auto loop_through = [&](const Location& anchor, CandidateResult& candidate,
+                          bool continuing = true) {
+    candidate.route.CopyFrom(prefix_route);
+    auto used = prefix_used;
+    if (!append_leg(last_user_location, anchor, used, candidate.route, true))
+      return false;
+    const auto arrival_edge = edge_ids(*candidate.route.legs().rbegin()).back();
+    const auto return_leg_index = candidate.route.legs_size();
+    if (!(continuing &&
+          append_leg(continuing_from(anchor, arrival_edge), origin, used, candidate.route, false)) &&
+        !append_leg(anchor, origin, used, candidate.route, false))
+      return false;
+    const auto departure_edges = edge_ids(candidate.route.legs(return_leg_index));
+    const auto uturn_edge = reader->GetOpposingEdgeId(GraphId(arrival_edge));
+    candidate.anchor_uturn = !departure_edges.empty() && uturn_edge.is_valid() &&
+                             departure_edges.front() == uturn_edge.value;
+    return true;
   };
 
   // When the user's vias already shape a loop of the right size, going straight
@@ -407,6 +492,10 @@ void thor_worker_t::round_trip(Api& request) {
       std::min(kMinimumCandidateEvaluations,
                static_cast<size_t>(round_trip.anchors_size()) + (has_vias ? 1 : 0));
   size_t examined = 0;
+  auto out_of_time = [&]() {
+    const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - search_started;
+    return found && elapsed.count() > round_trip_time_budget_seconds;
+  };
   for (const auto& anchor : round_trip.anchors()) {
     // Stop early once a diverse minimum set contains a route within the
     // planner's target tolerance and the requested overlap threshold.
@@ -416,27 +505,60 @@ void thor_worker_t::round_trip(Api& request) {
       break;
     // Bound the latency of long loops: once out of time, a usable loop now
     // beats a slightly better one later
-    const std::chrono::duration<float> elapsed = std::chrono::steady_clock::now() - search_started;
-    if (found && elapsed.count() > round_trip_time_budget_seconds) {
+    if (out_of_time()) {
       LOG_WARN("round_trip time budget spent after " + std::to_string(examined) + " anchors");
       break;
     }
 
     ++examined;
     CandidateResult candidate;
-    candidate.route.CopyFrom(prefix_route);
-    auto used = prefix_used;
-    if (!append_leg(last_user_location, anchor, used, candidate.route, true))
+    if (!loop_through(anchor, candidate))
       continue;
-    const auto arrival_edge = GraphId(edge_ids(*candidate.route.legs().rbegin()).back());
-    const auto return_leg_index = candidate.route.legs_size();
-    if (!append_leg(anchor, origin, used, candidate.route, false))
-      continue;
-    const auto departure_edges = edge_ids(candidate.route.legs(return_leg_index));
-    const auto uturn_edge = reader->GetOpposingEdgeId(arrival_edge);
-    candidate.anchor_uturn = !departure_edges.empty() && uturn_edge.is_valid() &&
-                             departure_edges.front() == uturn_edge.value;
-    consider(std::move(candidate));
+    const auto outbound = candidate.route.legs(prefix_route.legs_size());
+    const auto outbound_edges = edge_ids(outbound);
+    const auto progress = leg_progress(outbound, by_time);
+    auto actual = consider(std::move(candidate));
+    auto closest_error = std::abs(actual - aim) / aim;
+
+    // Road distances can't be known in advance, so anchors are placed a little too far out and a
+    // loop that comes out too long gets its anchor moved back along the way out. The loop length
+    // grows roughly linearly with how far out the anchor is, so interpolating between the closest
+    // too long and too short cut, starting from cutting the whole way out, converges quickly.
+    double long_cut = progress.back(), long_measure = actual;
+    double short_cut = 0., short_measure = prefix_measure;
+    size_t cut_edge = outbound_edges.size() - 1;
+    for (size_t shortening = 0;
+         shortening < kMaxShortenings && actual > aim * (1. + kShortenTolerance) && !out_of_time();
+         ++shortening) {
+      const auto cut =
+          short_cut + (long_cut - short_cut) * (aim - short_measure) / (long_measure - short_measure);
+      const auto next_cut_edge =
+          static_cast<size_t>(std::lower_bound(progress.begin(), progress.end(),
+                                               std::max(cut, kMinCutFraction * progress.back())) -
+                              progress.begin());
+      if (next_cut_edge >= cut_edge)
+        break;
+      cut_edge = next_cut_edge;
+
+      CandidateResult shortened;
+      if (!loop_through(location_at_end_of(*reader, anchor, GraphId(outbound_edges[cut_edge])),
+                        shortened))
+        break;
+      actual = consider(std::move(shortened));
+      closest_error = std::min(closest_error, std::abs(actual - aim) / aim);
+      if (std::abs(actual - aim) <= aim * kShortenTolerance)
+        break;
+      (actual > aim ? long_cut : short_cut) = progress[cut_edge];
+      (actual > aim ? long_measure : short_measure) = actual;
+    }
+
+    // where carrying on past the anchor can't make a loop of about the right size, e.g. on a dead
+    // end, an out-and-back through it still competes, though at a disadvantage
+    if (closest_error > kEarlyAcceptanceTargetError && !out_of_time()) {
+      CandidateResult turning;
+      if (loop_through(anchor, turning, false) && turning.anchor_uturn)
+        consider(std::move(turning));
+    }
   }
 
   if (!found)
