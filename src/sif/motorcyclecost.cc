@@ -27,8 +27,12 @@ namespace {
 constexpr float kDefaultUseHighways = 0.5f; // Factor between 0 and 1
 constexpr float kDefaultUseTolls = 0.5f;    // Factor between 0 and 1
 constexpr float kDefaultUseTrails = 0.0f;   // Factor between 0 and 1
-constexpr float kDefaultUseCurvature =
-    0.0f; // Factor between 0 and 1; 0 = no preference, 1 = max curvature
+constexpr float kDefaultUseCurvature = 0.0f;
+// At use_curvature 1 the straightest roads get this much added to their cost factor, roads of
+// curvature kFullCurvature and more nothing. It has to outweigh e.g. a motorway being twice as
+// fast to have an effect.
+constexpr float kMaxStraightPenalty = 4.0f;
+constexpr uint32_t kFullCurvature = 6;
 
 constexpr Surface kMinimumMotorcycleSurface = Surface::kImpassable;
 
@@ -291,11 +295,13 @@ public:
   // Hidden in source file so we don't need it to be protected
   // We expose it within the source file for testing purposes
 public:
-  VehicleType type_;       // Vehicle type: car (default), motorcycle, etc
-  float toll_factor_;      // Factor applied when road has a toll
-  float surface_factor_;   // How much the surface factors are applied when using trails
-  float highway_factor_;   // Factor applied when road is a motorway or trunk
-  float curvature_factor_; // Reward applied for curvy roads (negative = cost reduction)
+  VehicleType type_;     // Vehicle type: car (default), motorcycle, etc
+  float toll_factor_;    // Factor applied when road has a toll
+  float surface_factor_; // How much the surface factors are applied when using trails
+  float highway_factor_; // Factor applied when road is a motorway or trunk
+
+  // Added to the cost factor of an edge by its curvature, straight roads cost the most
+  std::array<float, 16> curvature_penalty_;
 };
 
 // Constructor
@@ -349,9 +355,12 @@ MotorcycleCost::MotorcycleCost(const Costing& costing)
     surface_factor_ = static_cast<uint32_t>(kMaxTrailBiasFactor * (f * f));
   }
 
-  // curvature_factor_ is a reward (cost reduction) for curvy edges.
-  // use_curvature=0 → no effect; use_curvature=1 → up to -0.5 cost factor on the curviest edges.
-  curvature_factor_ = costing_options.use_curvature() * 0.5f;
+  // preferring curvy roads makes straight ones more expensive rather than curvy ones cheaper,
+  // which would make the A* heuristic overestimate
+  for (uint32_t curvature = 0; curvature < curvature_penalty_.size(); ++curvature)
+    curvature_penalty_[curvature] =
+        costing_options.use_curvature() * kMaxStraightPenalty *
+        (1.f - static_cast<float>(std::min(curvature, kFullCurvature)) / kFullCurvature);
 }
 
 // Destructor
@@ -451,9 +460,9 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
 
   float factor = kDensityFactor[edge->density()] +
                  highway_factor_ * kHighwayFactor[static_cast<uint32_t>(edge->classification())] +
-                 surface_factor_ * kSurfaceFactor[static_cast<uint32_t>(edge->surface())] -
-                 curvature_factor_ * (edge->curvature() / 15.0f);
-  factor += SpeedPenalty(edge, tile, time_info, flow_sources, edge_speed);
+                 surface_factor_ * kSurfaceFactor[static_cast<uint32_t>(edge->surface())];
+  factor += SpeedPenalty(edge, tile, time_info, flow_sources, edge_speed) +
+            curvature_penalty_[edge->curvature()];
   if (edge->toll()) {
     factor += toll_factor_;
   }
