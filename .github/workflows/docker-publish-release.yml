@@ -48,7 +48,8 @@ jobs:
         run: |
           set -euo pipefail
           image="ghcr.io/${CONTAINER_NAME}"
-          docker build \
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             --file docker/Dockerfile \
             --build-arg VERSION_MODIFIER="${VERSION_MODIFIER}" \
             --tag "${image}:${VERSION}" \
@@ -61,7 +62,8 @@ jobs:
         run: |
           set -euo pipefail
           image="ghcr.io/${CONTAINER_NAME}-scripted"
-          docker build \
+          docker buildx build \
+            --platform linux/amd64,linux/arm64 \
             --file docker/Dockerfile-scripted \
             --build-arg VALHALLA_BUILDER_IMAGE="ghcr.io/${CONTAINER_NAME}:${VERSION}" \
             --tag "${image}:${VERSION}" \
