@@ -37,6 +37,7 @@ public:
 
   std::string locate(Api& request);
   void route(Api& request);
+  void round_trip(Api& request);
   void matrix(Api& request);
   void isochrones(Api& request);
   void trace(Api& request);
@@ -118,6 +119,9 @@ protected:
   float max_distance_disable_hierarchy_culling;
   double min_linear_cost_factor;
   uint64_t max_linear_cost_edges;
+  // Round trips skip the regular per-costing distance check, these bound them instead
+  size_t max_round_trip_locations;
+  float max_round_trip_distance_km;
   std::unordered_set<baldr::GraphId> bbox_intersection_;
 
   // for /tile requests

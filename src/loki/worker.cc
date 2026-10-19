@@ -311,6 +311,11 @@ loki_worker_t::loki_worker_t(const boost::property_tree::ptree& config,
 
   bbox_intersection_.reserve(1e5); // TODO: how much memory should we reserve for this?
 
+  // Each round-trip anchor costs two full graph searches over the whole loop, so
+  // long targets and many vias are bounded explicitly
+  max_round_trip_locations = config.get<size_t>("service_limits.round_trip.max_locations", 12);
+  max_round_trip_distance_km = config.get<float>("service_limits.round_trip.max_distance_km", 500.f);
+
   // Keep a string noting which actions we support, throw if one isnt supported
   Options::Action action;
   for (const auto& kv : config.get_child("loki.actions")) {
@@ -359,7 +364,7 @@ loki_worker_t::loki_worker_t(const boost::property_tree::ptree& config,
         kv.first == "max_distance_disable_hierarchy_culling" || kv.first == "skadi" ||
         kv.first == "status" || kv.first == "allow_hard_exclusions" ||
         kv.first == "hierarchy_limits" || kv.first == "min_linear_cost_factor" ||
-        kv.first == "max_linear_cost_edges") {
+        kv.first == "max_linear_cost_edges" || kv.first == "round_trip") {
       continue;
     }
     if (kv.first != "trace" && kv.first != "auto_pedestrian") {
@@ -539,6 +544,10 @@ loki_worker_t::work(const std::list<zmq::message_t>& job,
       case Options::route:
       case Options::centroid:
         route(request);
+        result.messages.emplace_back(request.SerializeAsString());
+        break;
+      case Options::round_trip:
+        round_trip(request);
         result.messages.emplace_back(request.SerializeAsString());
         break;
       case Options::locate:

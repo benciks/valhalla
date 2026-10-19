@@ -133,7 +133,8 @@ std::string serializeStatus(Api& request) {
 void route_references(json::MapPtr& route_json, const TripRoute& route, const Options& options) {
   const bool linear_reference =
       options.linear_references() &&
-      (options.action() == Options::trace_route || options.action() == Options::route);
+      (options.action() == Options::trace_route || options.action() == Options::route ||
+       options.action() == Options::round_trip);
   if (!linear_reference) {
     return;
   }
@@ -151,7 +152,8 @@ void route_references(json::MapPtr& route_json, const TripRoute& route, const Op
 void openlr(const valhalla::Api& api, int route_index, rapidjson::writer_wrapper_t& writer) {
   // you have to have requested it and you have to be some kind of route response
   if (!api.options().linear_references() ||
-      (api.options().action() != Options::trace_route && api.options().action() != Options::route))
+      (api.options().action() != Options::trace_route && api.options().action() != Options::route &&
+       api.options().action() != Options::round_trip))
     return;
 
   writer.start_array("linear_references");
@@ -189,6 +191,7 @@ std::string serializePbf(Api& request) {
     switch (request.options().action()) {
       // route like requests
       case Options::route:
+      case Options::round_trip:
       case Options::centroid:
       case Options::optimized_route:
       case Options::trace_route:

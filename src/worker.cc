@@ -67,15 +67,17 @@ bool is_format_supported(Options::Action action, Options::Format format) {
       // json
       0xFFFF, // all actions support json
       // gpx
-      (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route),
+      (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route) |
+          (1 << Options::round_trip),
       // osrm
       (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route) |
-          (1 << Options::trace_attributes) | (1 << Options::locate) | (1 << Options::status) |
-          (1 << Options::sources_to_targets) | (1 << Options::expansion),
+          (1 << Options::round_trip) | (1 << Options::trace_attributes) | (1 << Options::locate) |
+          (1 << Options::status) | (1 << Options::sources_to_targets) | (1 << Options::expansion),
       // pbf
       (1 << Options::route) | (1 << Options::optimized_route) | (1 << Options::trace_route) |
-          (1 << Options::centroid) | (1 << Options::trace_attributes) | (1 << Options::status) |
-          (1 << Options::sources_to_targets) | (1 << Options::isochrone) | (1 << Options::expansion),
+          (1 << Options::round_trip) | (1 << Options::centroid) | (1 << Options::trace_attributes) |
+          (1 << Options::status) | (1 << Options::sources_to_targets) | (1 << Options::isochrone) |
+          (1 << Options::expansion),
   // geotiff
 #ifdef ENABLE_GEOTIFF
       (1 << Options::isochrone),
@@ -645,6 +647,15 @@ void parse_line(const rapidjson::Value& json_feat, valhalla::LinearFeatureCost* 
   line_feat->set_allow_types(AllowTypes_Parse(json_obj));
 }
 
+void parse_round_trip(const rapidjson::Document& doc, Options& options) {
+  auto& round_trip = *options.mutable_round_trip_options();
+  if (auto target_distance = rapidjson::get_optional<float>(doc, "/target_distance"))
+    round_trip.set_target_distance(*target_distance);
+  if (auto target_time = rapidjson::get_optional<float>(doc, "/target_time"))
+    round_trip.set_target_time(*target_time);
+  round_trip.set_seed(rapidjson::get<uint32_t>(doc, "/round_trip_options/seed", 0));
+}
+
 /**
  * This function takes a json document and parses it into an options (request pbf) object.
  * The implementation is such that if you passed an already filled out options object the
@@ -673,6 +684,9 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
   if (Options::Action_IsValid(action))
     options.set_action(action);
   auto& warnings = *api.mutable_info()->mutable_warnings();
+
+  if (options.action() == Options::round_trip)
+    parse_round_trip(doc, options);
 
   // matrix can be slimmed down but shouldn't by default for backwards-compatibility reasons
   if (options.action() == Options::sources_to_targets) {
@@ -1077,7 +1091,6 @@ void from_json(rapidjson::Document& doc, Options::Action action, Api& api) {
 
   // get the locations in there
   parse_locations(doc, api, "locations", 130, ignore_closures, had_date_time);
-
   // get the sources in there
   parse_locations(doc, api, "sources", 131, ignore_closures, had_date_time);
 

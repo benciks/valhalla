@@ -69,7 +69,9 @@ thor_worker_t::thor_worker_t(const boost::property_tree::ptree& config,
                           : std::make_shared<baldr::GraphReader>(config.get_child("mjolnir"))),
       matcher_factory(config, reader), controller{},
       allow_hierarchy_limits_modifications(
-          config.get<bool>("service_limits.hierarchy_limits.allow_modification", false)) {
+          config.get<bool>("service_limits.hierarchy_limits.allow_modification", false)),
+      round_trip_time_budget_seconds(
+          config.get<float>("service_limits.round_trip.max_search_seconds", 30.f)) {
 
   // Select the matrix algorithm based on the conf file (defaults to
   // select_optimal if not present)
@@ -83,7 +85,7 @@ thor_worker_t::thor_worker_t(const boost::property_tree::ptree& config,
         kv.first == "centroid" || kv.first == "status" ||
         kv.first == "max_distance_disable_hierarchy_culling" || kv.first == "allow_hard_exclusions" ||
         kv.first == "hierarchy_limits" || kv.first == "min_linear_cost_factor" ||
-        kv.first == "max_linear_cost_edges") {
+        kv.first == "max_linear_cost_edges" || kv.first == "round_trip") {
       continue;
     }
 
@@ -155,6 +157,11 @@ thor_worker_t::work(const std::list<zmq::message_t>& job,
         break;
       case Options::route: {
         route(request);
+        result.messages.emplace_back(serialize_to_pbf(request));
+        break;
+      }
+      case Options::round_trip: {
+        round_trip(request);
         result.messages.emplace_back(serialize_to_pbf(request));
         break;
       }

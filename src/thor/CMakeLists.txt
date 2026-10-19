@@ -9,6 +9,7 @@ set(sources
   multimodal_astar.cc
   multimodal_transit.cc
   route_action.cc
+  round_trip_action.cc
   timedistancebssmatrix.cc
   timedistancematrix.cc
   triplegbuilder.cc

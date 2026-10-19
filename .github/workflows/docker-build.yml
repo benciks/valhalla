@@ -23,7 +23,8 @@ on:
   workflow_dispatch:
 
 jobs:
-  extract_image_tag: 
+  extract_image_tag:
+    if: ${{ github.repository_owner == 'valhalla' }}
     runs-on: ubuntu-latest
     outputs:
       tag: ${{ steps.imgtag.outputs.tag }}

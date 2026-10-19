@@ -221,6 +221,7 @@ The following options are available for motorcycle costing:
 | :-------------------------- | :----------- |
 | `use_highways` | A riders's propensity to prefer the use of highways. This is a range of values from 0 to 1, where 0 attempts to avoid highways, and values toward 1 indicates the rider prefers highways. The default value is 0.5. |
 | `use_trails` | A riders's desire for adventure in their routes.  This is a range of values from 0 to 1, where 0 will avoid trails, tracks, unclassified or bad surfaces and values towards 1 will tend to avoid major roads and route on secondary roads.  The default value is 0.0. |
+| `use_curvature` | A riders's desire for curvy roads. This is a range of values from 0 to 1, where 0 has no preference and values towards 1 make straight roads increasingly more expensive than curvy ones, up to five times as expensive at 1. The default value is 0.0. |
 | `shortest` | Changes the metric to quasi-shortest, i.e. purely distance-based costing. Note, this will disable all other costings & penalties. Also note, `shortest` will not disable hierarchy pruning, leading to potentially sub-optimal routes for some costing models. The default is `false`. |
 | `disable_hierarchy_pruning` | Disable hierarchies to calculate the actual optimal route. The default is `false`. **Note:** This could be quite a performance drainer so there is a upper limit of distance. If the upper limit is exceeded, this option will always be `false`. |
 
@@ -376,6 +377,31 @@ For example a bus request with the result in Spanish using the OSRM (Open Source
 | `turn_lanes` | When present and `true`, each maneuver in the route response can include a `lanes` array describing lane-level guidance. The lanes array details possible `directions`, as well as which lanes are `valid` or `active` for following the maneuver. |
 | `linear_cost_factors` | Customized cost factors that influence path finding, specified as an array of JSON objects. Objects can be either a GeoJSON linestring feature or a plain object with a "shape" key whose value needs to be an encoded polyline with 6-digit precision. Valhalla will perform an edge walk (see [the map matching documentation](../map-matching.md) for more info) to match the geometry onto edges. The plain object or the GeoJSON properties then carry further information that controls how these edges are treated differently. Currently, the following are supported: <ul><li>`factor` (non-negative float): edges with factors larger than 1 will be increasingly avoided, while edges with factors smaller than 1 increasingly favored. Default 1 (no change).</li><li>**BETA**: `allow_types` (list of strings) for allowing edges. Currently, only `"all"` is supported, which unconditionally allows edge access.</li></ul> |
 | `reverse_time_tracking` (**BETA**) | Which time tracking strategy to use on the non-time aware expansion in the bidirectional routing algorithm: `disabled` will assume no time, `heuristic` will try a best guess based on the bee line distance between origin and destination. Default `heuristic` |
+
+### Round trips
+
+`POST /round_trip` returns a loop of about the requested length or duration that starts and ends at the first location. It takes the same request as `/route`, where `locations` holds the origin followed by any vias the loop has to pass in order, plus exactly one of:
+
+| Parameter | Description |
+| :--- | :--- |
+| `target_distance` | The loop's length, in the request's `units`. |
+| `target_time` | The loop's duration, in minutes. |
+
+and optionally `round_trip_options.seed`, which rotates where the loop heads off to. The same seed gives the same loop, default `0`.
+
+```json
+{
+  "locations": [{"lat": 49.1951, "lon": 16.6068}],
+  "target_distance": 150,
+  "costing": "motorcycle",
+  "costing_options": {"motorcycle": {"use_curvature": 0.8}},
+  "round_trip_options": {"seed": 123}
+}
+```
+
+Loki places a few candidate anchors around the origin, past the last via, as far out as the target suggests. Thor routes the loop out to an anchor and back, making every road used on the way out, and those within 50 meters of it, expensive for the way back so the loop doesn't retrace itself. A loop that comes out too long has its anchor moved back along the way out until it fits. Thor stops once a loop is within 10% of the target and barely reuses any road, and otherwise returns the best one it found. Reusing roads can't always be avoided, e.g. starting on a dead end, so it is only discouraged. The response has the shape of a `/route` response with one leg per via plus two for the anchor.
+
+The `service_limits.round_trip` config section bounds the number of locations (`max_locations`), the target (`max_distance_km`, a `target_time` is converted with a rough average speed of the costing) and how long Thor keeps trying anchors (`max_search_seconds`).
 
 [openlr]: https://www.openlr-association.com/fileadmin/user_upload/openlr-whitepaper_v1.5.pdf
 
@@ -660,6 +686,7 @@ The codes correspond to code returned from a particular [Valhalla project](https
 |110 | Insufficiently specified required parameter 'locations' |
 |111 | Insufficiently specified required parameter 'time' |
 |112 | Insufficiently specified required parameter 'locations' or 'sources & targets' |
+|116 | Insufficiently specified required parameter, exactly one of 'target_distance' or 'target_time' |
 |113 | Insufficiently specified required parameter 'contours' |
 |114 | Insufficiently specified required parameter 'shape' or 'encoded_polyline' |
 |120 | Insufficient number of locations provided |

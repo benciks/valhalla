@@ -52,6 +52,7 @@ public:
   static void adjust_locations(valhalla::Api& options);
 
   void route(Api& request);
+  void round_trip(Api& request);
   std::string matrix(Api& request);
   void optimized_route(Api& request);
   std::string isochrones(Api& request);
@@ -139,6 +140,9 @@ protected:
   hierarchy_limits_config_t hierarchy_limits_config_astar;
   hierarchy_limits_config_t hierarchy_limits_config_bidirectional_astar;
   hierarchy_limits_config_t hierarchy_limits_config_costmatrix;
+
+  // Once spent, round trips stop evaluating anchors and return the best loop so far
+  float round_trip_time_budget_seconds;
 
 private:
   std::string service_name() const override {

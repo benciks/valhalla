@@ -730,6 +730,9 @@ valhalla::Api do_action(const valhalla::Options::Action& action,
     case valhalla::Options::centroid:
       json_str = actor.centroid(request_json, nullptr, &api);
       break;
+    case valhalla::Options::round_trip:
+      json_str = actor.round_trip(request_json, nullptr, &api);
+      break;
     case valhalla::Options::expansion:
       json_str = actor.expansion(request_json, nullptr, &api);
       break;

@@ -38,6 +38,7 @@ const std::unordered_map<unsigned, valhalla::valhalla_exception_t> error_codes{
     {113, {113, "Insufficiently specified required parameter 'contours'", 400, HTTP_400, OSRM_INVALID_OPTIONS, "contours_parse_failed"}},
     {114, {114, "Insufficiently specified required parameter 'shape' or 'encoded_polyline'", 400, HTTP_400, OSRM_INVALID_OPTIONS, "shape_parse_failed"}},
     {115, {115, "Insufficiently specified required parameter 'action'", 400, HTTP_400, OSRM_INVALID_OPTIONS, "action_parse_failed"}},
+    {116, {116, "Insufficiently specified required parameter, exactly one of 'target_distance' or 'target_time'", 400, HTTP_400, OSRM_INVALID_OPTIONS, "round_trip_target_parse_failed"}},
     {120, {120, "Insufficient number of locations provided", 400, HTTP_400, OSRM_INVALID_OPTIONS, "not_enough_locations"}},
     {121, {121, "Insufficient number of sources provided", 400, HTTP_400, OSRM_INVALID_OPTIONS, "not_enough_sources"}},
     {122, {122, "Insufficient number of targets provided", 400, HTTP_400, OSRM_INVALID_OPTIONS, "not_enough_targets"}},

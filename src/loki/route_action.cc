@@ -42,7 +42,9 @@ void loki_worker_t::init_route(Api& request) {
   parse_locations(request.mutable_options()->mutable_locations(), request);
   // need to check location size here instead of in parse_locations because of locate action needing
   // a different size
-  if (request.options().locations_size() < 2) {
+  // a round trip can start and end at its only location
+  const auto minimum_locations = request.options().action() == Options::round_trip ? 1 : 2;
+  if (request.options().locations_size() < minimum_locations) {
     throw valhalla_exception_t{120};
   };
   parse_costing(request);

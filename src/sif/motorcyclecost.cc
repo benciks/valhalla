@@ -27,6 +27,12 @@ namespace {
 constexpr float kDefaultUseHighways = 0.5f; // Factor between 0 and 1
 constexpr float kDefaultUseTolls = 0.5f;    // Factor between 0 and 1
 constexpr float kDefaultUseTrails = 0.0f;   // Factor between 0 and 1
+constexpr float kDefaultUseCurvature = 0.0f;
+// At use_curvature 1 the straightest roads get this much added to their cost factor, roads of
+// curvature kFullCurvature and more nothing. It has to outweigh e.g. a motorway being twice as
+// fast to have an effect.
+constexpr float kMaxStraightPenalty = 4.0f;
+constexpr uint32_t kFullCurvature = 6;
 
 constexpr Surface kMinimumMotorcycleSurface = Surface::kImpassable;
 
@@ -54,6 +60,7 @@ constexpr float kLeftSideTurnCosts[] = {kTCStraight,         kTCSlight,  kTCUnfa
 constexpr ranged_default_t<float> kUseHighwaysRange{0, kDefaultUseHighways, 1.0f};
 constexpr ranged_default_t<float> kUseTollsRange{0, kDefaultUseTolls, 1.0f};
 constexpr ranged_default_t<float> kUseTrailsRange{0, kDefaultUseTrails, 1.0f};
+constexpr ranged_default_t<float> kUseCurvatureRange{0, kDefaultUseCurvature, 1.0f};
 constexpr ranged_default_t<uint32_t> kMotorcycleSpeedRange{10, baldr::kMaxAssumedSpeed,
                                                            baldr::kMaxSpeedKph};
 
@@ -292,6 +299,9 @@ public:
   float toll_factor_;    // Factor applied when road has a toll
   float surface_factor_; // How much the surface factors are applied when using trails
   float highway_factor_; // Factor applied when road is a motorway or trunk
+
+  // Added to the cost factor of an edge by its curvature, straight roads cost the most
+  std::array<float, 16> curvature_penalty_;
 };
 
 // Constructor
@@ -344,6 +354,13 @@ MotorcycleCost::MotorcycleCost(const Costing& costing)
     float f = 1.0f - use_trails * 2.0f;
     surface_factor_ = static_cast<uint32_t>(kMaxTrailBiasFactor * (f * f));
   }
+
+  // preferring curvy roads makes straight ones more expensive rather than curvy ones cheaper,
+  // which would make the A* heuristic overestimate
+  for (uint32_t curvature = 0; curvature < curvature_penalty_.size(); ++curvature)
+    curvature_penalty_[curvature] =
+        costing_options.use_curvature() * kMaxStraightPenalty *
+        (1.f - static_cast<float>(std::min(curvature, kFullCurvature)) / kFullCurvature);
 }
 
 // Destructor
@@ -444,7 +461,8 @@ Cost MotorcycleCost::EdgeCost(const baldr::DirectedEdge* edge,
   float factor = kDensityFactor[edge->density()] +
                  highway_factor_ * kHighwayFactor[static_cast<uint32_t>(edge->classification())] +
                  surface_factor_ * kSurfaceFactor[static_cast<uint32_t>(edge->surface())];
-  factor += SpeedPenalty(edge, tile, time_info, flow_sources, edge_speed);
+  factor += SpeedPenalty(edge, tile, time_info, flow_sources, edge_speed) +
+            curvature_penalty_[edge->curvature()];
   if (edge->toll()) {
     factor += toll_factor_;
   }
@@ -625,6 +643,7 @@ void ParseMotorcycleCostOptions(const rapidjson::Document& doc,
   JSON_PBF_RANGED_DEFAULT(co, kUseTollsRange, json, "/use_tolls", use_tolls, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kUseTrailsRange, json, "/use_trails", use_trails, warnings);
   JSON_PBF_RANGED_DEFAULT(co, kMotorcycleSpeedRange, json, "/top_speed", top_speed, warnings);
+  JSON_PBF_RANGED_DEFAULT(co, kUseCurvatureRange, json, "/use_curvature", use_curvature, warnings);
 }
 
 cost_ptr_t CreateMotorcycleCost(const Costing& costing_options) {

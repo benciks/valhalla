@@ -200,6 +200,7 @@ config = {
             "transit_available",
             "expansion",
             "centroid",
+            "round_trip",
             "status",
             "tile",
         ],
@@ -409,6 +410,7 @@ config = {
             "max_matrix_location_pairs": 2500,
         },
         "centroid": {"max_distance": 200000.0, "max_locations": 5},
+        "round_trip": {"max_locations": 12, "max_distance_km": 500.0, "max_search_seconds": 30.0},
         "max_exclude_locations": 50,
         "max_reachability": 100,
         "max_radius": 200,
@@ -529,7 +531,7 @@ help_text = {
         "elevation_url_user_pw": 'User & password for HTTP basic auth in the form of "user:password"',
     },
     "loki": {
-        "actions": "Comma separated list of allowable actions for the service, one or more of: locate, route, height, optimized_route, isochrone, trace_route, trace_attributes, transit_available, expansion, centroid, status, tile",
+        "actions": "Comma separated list of allowable actions for the service, one or more of: locate, route, height, optimized_route, isochrone, trace_route, trace_attributes, transit_available, expansion, centroid, round_trip, status, tile",
         "use_connectivity": "a boolean value to know whether or not to construct the connectivity maps",
         "service_defaults": {
             "radius": "Default radius to apply to incoming locations should one not be supplied",
@@ -758,6 +760,11 @@ help_text = {
         "centroid": {
             "max_distance": "Maximum b-line distance between any pair of locations in meters",
             "max_locations": "Maximum number of input locations, 127 is a hard limit and cannot be increased in config",
+        },
+        "round_trip": {
+            "max_locations": "Maximum number of input locations, the origin and its vias",
+            "max_distance_km": "Maximum target length in kilometers, a target time is converted with a rough average speed of the costing",
+            "max_search_seconds": "Once a round trip has searched this long it stops trying further anchors and returns the best loop so far",
         },
         "max_exclude_locations": "Maximum number of avoid locations to allow in a request",
         "max_reachability": "Maximum reachability (number of nodes reachable) allowed on any one location",

@@ -364,6 +364,10 @@ message Costing {
     oneof has_low_class_factor {
       float low_class_factor = 97;
     }
+
+    oneof has_use_curvature {
+      float use_curvature = 98;   // Preference for curvy roads (0=no preference, 1=maximum curvature)
+    }
     oneof has_steps_factor {
       float steps_factor = 99;
     }
@@ -390,6 +394,15 @@ message LinearFeatureCost {
   repeated Location shape = 2;                                   // This is where the actual line geometry goes
   double cost_factor = 3;
   uint32 allow_types = 5;                                        // whether edges along this shape may be used unconditionally
+}
+
+// Parameters of the /round_trip action. max_overlap and anchors are set internally by Loki.
+message RoundTripOptions {
+  float target_distance = 1;                                     // requested loop length, in request units
+  float target_time = 2;                                         // requested loop duration, in minutes
+  uint32 seed = 3;                                               // rotates where the loop's anchors are placed
+  float max_overlap = 4;                                         // preferred maximum repeated-edge fraction [0, 1]
+  repeated Location anchors = 5;                                 // correlated candidate anchors
 }
 
 message Options {
@@ -423,6 +436,7 @@ message Options {
     centroid = 11;
     status = 12;
     tile = 13;
+    round_trip = 14;
   }
 
   enum DateTimeType {
@@ -559,4 +573,5 @@ message Options {
   TileOptions tile_options = 64;                                   // additional /tile specific options
   repeated Levels exclude_levels = 65;                             // Levels to exclude within the exclude_polygon at the same index
   uint32 expansion_max_distance = 66;                              // Maximum path distance in meters for expansion. 0 = disabled.
+  RoundTripOptions round_trip_options = 67;                        // /round_trip specific options
 }
